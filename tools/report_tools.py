@@ -59,6 +59,17 @@ def _write_report_to_disk(dq_report: list[dict]) -> None:
         writer.writerows(dq_report)
 
 
+def read_report_from_disk() -> list[dict]:
+    """Read back the cumulative report written so far. main.py uses this
+    instead of trusting create_agent's invoke() return value, since that
+    isn't guaranteed to include custom DQState fields like dq_report -
+    only what write_report has actually persisted to disk is reliable."""
+    if not REPORT_PATH.exists():
+        return []
+    with open(REPORT_PATH, newline="") as f:
+        return list(csv.DictReader(f))
+
+
 @tool
 def write_report(
     state: Annotated[DQState, InjectedState],
@@ -68,7 +79,7 @@ def write_report(
     disk. Call this once execute_sql has run, or once you've been told
     the retry limit was reached - it's always the last step for a
     table."""
-    if state["sql_valid"] and not state["execution_results"]:
+    if state["sql_valid"] and not state["executed"]:
         return Command(update={
             "messages": [ToolMessage(
                 content="Cannot write report yet: execute_sql has not run. Call execute_sql first.",

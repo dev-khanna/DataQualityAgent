@@ -228,6 +228,7 @@ def execute_sql(
 
     return Command(update={
         "execution_results": results,
+        "executed": True,
         "messages": [ToolMessage(
             content=f"Executed {len(results)} check(s); {violations} found violations.",
             tool_call_id=tool_call_id,

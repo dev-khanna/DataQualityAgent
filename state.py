@@ -11,9 +11,9 @@ whole run.
 There's no `next_agent` field anymore - routing IS the tool call the LLM
 makes each turn, so there's nothing left to store a routing decision in.
 """
-
 from typing import Annotated, Optional, Sequence, TypedDict
 
+from langchain.agents import AgentState
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
@@ -55,9 +55,7 @@ class TableRuleSet(TypedDict):
     rules: list[CompiledRule]
 
 
-class DQState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], add_messages]
-
+class DQState(AgentState):
     current_table: str
 
     # Per-table working data. Fresh for every table - see
@@ -69,6 +67,7 @@ class DQState(TypedDict):
     validation_errors: list[str]
     sql_valid: bool
     execution_results: list[dict]
+    executed: bool
     retry_count: int
 
     # Seeded from the accumulator in main.py at the start of each
@@ -91,6 +90,6 @@ def initial_state_for_table(table_name: str, dq_report_so_far: list[dict]) -> DQ
         validation_errors=[],
         sql_valid=False,
         execution_results=[],
+        executed=False,
         retry_count=0,
-        dq_report=dq_report_so_far,
     )
