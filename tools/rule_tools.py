@@ -6,11 +6,10 @@ makes one LLM call to decide which checks make sense for this table -
 no SQL here, only intent; that's generate_sql's job.
 """
 
-from typing import Annotated, TypedDict
+from typing import TypedDict
 
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import InjectedToolCallId, tool
-from langgraph.prebuilt import InjectedState
+from langchain.tools import tool, ToolRuntime
 from langgraph.types import Command
 
 from config import get_llm
@@ -53,16 +52,13 @@ def _plan_checks(metadata: dict, knowledge_base: str) -> list[PlannedCheck]:
 
 
 @tool
-def create_rule_plan(
-    state: Annotated[DQState, InjectedState],
-    tool_call_id: Annotated[str, InjectedToolCallId],
-) -> Command:
+def create_rule_plan(runtime: ToolRuntime[None, DQState]) -> Command:
     """Decide which data quality checks should exist for the current
     table, based on its metadata and the organization's DQ knowledge
     base. Call this after extract_database_metadata and before
     generate_sql - checks must be planned before any SQL can be written
     for them."""
-    metadata = state["metadata"]
+    metadata = runtime.state["metadata"]
     knowledge_base = read_knowledge_base()
     checks = _plan_checks(metadata, knowledge_base)
 
@@ -72,6 +68,6 @@ def create_rule_plan(
         "planned_checks": plan,
         "messages": [ToolMessage(
             content=f"Planned {len(checks)} check(s): {[c['check_name'] for c in checks]}.",
-            tool_call_id=tool_call_id,
+            tool_call_id=runtime.tool_call_id,
         )],
     })

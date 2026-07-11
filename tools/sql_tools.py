@@ -16,11 +16,10 @@ what it runs is real SQL against a real database.
 """
 
 import re
-from typing import Annotated, TypedDict
+from typing import TypedDict
 
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import InjectedToolCallId, tool
-from langgraph.prebuilt import InjectedState
+from langchain.tools import tool, ToolRuntime
 from langgraph.types import Command
 
 from config import FORBIDDEN_SQL_KEYWORDS, MAX_RETRIES, get_llm
@@ -77,15 +76,13 @@ def _failed_check_names(validation_errors: list[str]) -> set[str]:
 
 
 @tool
-def generate_sql(
-    state: Annotated[DQState, InjectedState],
-    tool_call_id: Annotated[str, InjectedToolCallId],
-) -> Command:
+def generate_sql(runtime: ToolRuntime[None, DQState]) -> Command:
     """Write DuckDB SQL for the planned checks on the current table. On
     the first call, writes SQL for every planned check. If called again
     after validate_sql found problems, only regenerates the checks that
     failed. Refuses to run past the retry limit - call write_report
     instead once it tells you to."""
+    state = runtime.state
     metadata = state["metadata"]
     planned_checks = state["planned_checks"]
     table_name = metadata["table_name"]
@@ -100,7 +97,7 @@ def generate_sql(
             "sql_valid": False,
             "messages": [ToolMessage(
                 content=f"Generated SQL for {len(rules)} check(s).",
-                tool_call_id=tool_call_id,
+                tool_call_id=runtime.tool_call_id,
             )],
         })
 
@@ -113,7 +110,7 @@ def generate_sql(
                     f"again for this table - call write_report to record the "
                     f"failure."
                 ),
-                tool_call_id=tool_call_id,
+                tool_call_id=runtime.tool_call_id,
             )],
         })
 
@@ -144,7 +141,7 @@ def generate_sql(
         "retry_count": state["retry_count"] + 1,
         "messages": [ToolMessage(
             content=f"Regenerated SQL for failed check(s): {sorted(failed_names)}.",
-            tool_call_id=tool_call_id,
+            tool_call_id=runtime.tool_call_id,
         )],
     })
 
@@ -167,15 +164,12 @@ def _validate_one(sql: str) -> str | None:
 
 
 @tool
-def validate_sql(
-    state: Annotated[DQState, InjectedState],
-    tool_call_id: Annotated[str, InjectedToolCallId],
-) -> Command:
+def validate_sql(runtime: ToolRuntime[None, DQState]) -> Command:
     """Check the currently generated SQL for the current table: rejects
     anything that isn't a single read-only SELECT, and rejects any
     forbidden keyword (DROP, DELETE, UPDATE, etc). Deterministic - call
     this immediately after every generate_sql call."""
-    rules = state["compiled_rules"]["rules"]
+    rules = runtime.state["compiled_rules"]["rules"]
     errors = []
     for rule in rules:
         error = _validate_one(rule["sql"])
@@ -192,23 +186,21 @@ def validate_sql(
     return Command(update={
         "validation_errors": errors,
         "sql_valid": sql_valid,
-        "messages": [ToolMessage(content=summary, tool_call_id=tool_call_id)],
+        "messages": [ToolMessage(content=summary, tool_call_id=runtime.tool_call_id)],
     })
 
 
 @tool
-def execute_sql(
-    state: Annotated[DQState, InjectedState],
-    tool_call_id: Annotated[str, InjectedToolCallId],
-) -> Command:
+def execute_sql(runtime: ToolRuntime[None, DQState]) -> Command:
     """Run every validated check's SQL against DuckDB and record how
     many rows (if any) violate each rule. Refuses to run anything unless
     validate_sql has already passed for this table's current SQL."""
+    state = runtime.state
     if not state["sql_valid"]:
         return Command(update={
             "messages": [ToolMessage(
                 content="Cannot execute: SQL has not passed validation yet. Call validate_sql first.",
-                tool_call_id=tool_call_id,
+                tool_call_id=runtime.tool_call_id,
             )],
         })
 
@@ -231,6 +223,6 @@ def execute_sql(
         "executed": True,
         "messages": [ToolMessage(
             content=f"Executed {len(results)} check(s); {violations} found violations.",
-            tool_call_id=tool_call_id,
+            tool_call_id=runtime.tool_call_id,
         )],
     })

@@ -57,10 +57,6 @@ class TableRuleSet(TypedDict):
 
 class DQState(AgentState):
     current_table: str
-
-    # Per-table working data. Fresh for every table - see
-    # initial_state_for_table, called once per iteration of main.py's
-    # table loop.
     metadata: Optional[TableMetadata]
     planned_checks: Optional[TableDQPlan]
     compiled_rules: Optional[TableRuleSet]
@@ -69,10 +65,6 @@ class DQState(AgentState):
     execution_results: list[dict]
     executed: bool
     retry_count: int
-
-    # Seeded from the accumulator in main.py at the start of each
-    # table's run, and read back out at the end - grows across the
-    # entire pipeline, never reset per table.
     dq_report: list[dict]
 
 
@@ -92,4 +84,5 @@ def initial_state_for_table(table_name: str, dq_report_so_far: list[dict]) -> DQ
         execution_results=[],
         executed=False,
         retry_count=0,
+        dq_report=dq_report_so_far
     )

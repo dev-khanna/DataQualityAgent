@@ -8,11 +8,9 @@ disk immediately.
 """
 
 import csv
-from typing import Annotated
 
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import InjectedToolCallId, tool
-from langgraph.prebuilt import InjectedState
+from langchain.tools import tool, ToolRuntime
 from langgraph.types import Command
 
 from config import REPORT_PATH
@@ -71,19 +69,17 @@ def read_report_from_disk() -> list[dict]:
 
 
 @tool
-def write_report(
-    state: Annotated[DQState, InjectedState],
-    tool_call_id: Annotated[str, InjectedToolCallId],
-) -> Command:
+def write_report(runtime: ToolRuntime[None, DQState]) -> Command:
     """Record this table's results to the DQ report and persist it to
     disk. Call this once execute_sql has run, or once you've been told
     the retry limit was reached - it's always the last step for a
     table."""
+    state = runtime.state
     if state["sql_valid"] and not state["executed"]:
         return Command(update={
             "messages": [ToolMessage(
                 content="Cannot write report yet: execute_sql has not run. Call execute_sql first.",
-                tool_call_id=tool_call_id,
+                tool_call_id=runtime.tool_call_id,
             )],
         })
 
@@ -99,6 +95,6 @@ def write_report(
         "dq_report": dq_report,
         "messages": [ToolMessage(
             content=f"Report updated - {len(new_rows)} row(s) added for this table.",
-            tool_call_id=tool_call_id,
+            tool_call_id=runtime.tool_call_id,
         )],
     })

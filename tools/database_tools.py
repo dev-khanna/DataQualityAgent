@@ -8,11 +8,10 @@ keys, and the one LLM call that makes the final primary-key judgment -
 is private to this file and never visible to the orchestrator.
 """
 
-from typing import Annotated, TypedDict
+from typing import TypedDict
 
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import InjectedToolCallId, tool
-from langgraph.prebuilt import InjectedState
+from langchain.tools import tool, ToolRuntime
 from langgraph.types import Command
 
 from config import get_llm
@@ -76,15 +75,12 @@ def _pick_primary_key(
 
 
 @tool
-def extract_database_metadata(
-    state: Annotated[DQState, InjectedState],
-    tool_call_id: Annotated[str, InjectedToolCallId],
-) -> Command:
+def extract_database_metadata(runtime: ToolRuntime[None, DQState]) -> Command:
     """Collect schema, row count, sample rows, and column statistics for
     the current table, and determine its primary key and candidate keys.
     Call this first, before planning or writing any checks - every later
     step depends on this table's metadata being known."""
-    table_name = state["current_table"]
+    table_name = runtime.state["current_table"]
 
     schema = get_schema(table_name)
     row_count = get_row_count(table_name)
@@ -113,6 +109,6 @@ def extract_database_metadata(
                 f"primary_key='{metadata['primary_key']}', "
                 f"candidate_keys={metadata['candidate_keys']}."
             ),
-            tool_call_id=tool_call_id,
+            tool_call_id=runtime.tool_call_id,
         )],
     })

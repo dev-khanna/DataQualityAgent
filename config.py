@@ -33,7 +33,7 @@ gemini_model = init_chat_model(
 
 
 def get_llm()->BaseChatModel:
-    return open_router_model
+    return gemini_model
 
 
 # Maximum number of times SQL Generator may be asked to fix failing SQL for a single table before the orchestrator gives up on that table.
