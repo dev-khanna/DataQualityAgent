@@ -1,12 +1,21 @@
 """
 Shared graph state.
 
-Kept intentionally small - every field here is something more than one
-node needs to read or write. Anything more local than that belongs
-inside a single node function instead of on this object.
+`messages` is required by LangGraph's tool-calling loop - it's the
+transcript the orchestrator LLM reads to decide which tool to call
+next, and where each tool's result (as a ToolMessage) shows up right
+after it runs. Everything else is pipeline state: progress on the table
+being processed right now, plus the report that accumulates across the
+whole run.
+
+There's no `next_agent` field anymore - routing IS the tool call the LLM
+makes each turn, so there's nothing left to store a routing decision in.
 """
 
-from typing import Optional, TypedDict
+from typing import Annotated, Optional, Sequence, TypedDict
+
+from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
 
 
 class ColumnInfo(TypedDict):
@@ -47,13 +56,13 @@ class TableRuleSet(TypedDict):
 
 
 class DQState(TypedDict):
-    # Tables still waiting to be processed. current_table is NOT in this
-    # list - it's popped off as soon as it becomes the active table.
-    tables: list[str]
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+
     current_table: str
 
-    # Per-table working data. All of these are reset to their empty
-    # values whenever the orchestrator moves on to a new table.
+    # Per-table working data. Fresh for every table - see
+    # initial_state_for_table, called once per iteration of main.py's
+    # table loop.
     metadata: Optional[TableMetadata]
     planned_checks: Optional[TableDQPlan]
     compiled_rules: Optional[TableRuleSet]
@@ -62,21 +71,20 @@ class DQState(TypedDict):
     execution_results: list[dict]
     retry_count: int
 
-    # Grows across the entire run. Never reset between tables.
+    # Seeded from the accumulator in main.py at the start of each
+    # table's run, and read back out at the end - grows across the
+    # entire pipeline, never reset per table.
     dq_report: list[dict]
 
-    # The orchestrator's routing decision for "what runs next". Read by
-    # the graph's conditional edge right after the orchestrator node runs.
-    next_agent: str
 
-
-def initial_state(tables: list[str]) -> DQState:
-    """Build the starting state for a run given the list of tables to
-    process. The first table becomes current_table immediately."""
-    first_table, *remaining = tables
+def initial_state_for_table(table_name: str, dq_report_so_far: list[dict]) -> DQState:
+    """Build the starting state for one table's agent run. Called once per table, from main.py's loop."""
     return DQState(
-        tables=remaining,
-        current_table=first_table,
+        messages=[{
+            "role": "user",
+            "content": f"Run the data quality pipeline for table '{table_name}'.",
+        }],
+        current_table=table_name,
         metadata=None,
         planned_checks=None,
         compiled_rules=None,
@@ -84,6 +92,5 @@ def initial_state(tables: list[str]) -> DQState:
         sql_valid=False,
         execution_results=[],
         retry_count=0,
-        dq_report=[],
-        next_agent="",
+        dq_report=dq_report_so_far,
     )
