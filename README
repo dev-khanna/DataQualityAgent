@@ -1,0 +1,26 @@
+dq_agent/
+├── main.py              entry point
+├── graph.py              builds the LangGraph StateGraph
+├── state.py              DQState (the shared graph state) + type defs
+├── config.py              paths, model name, workflow constants
+│
+├── agents/                LLM-backed nodes
+│   ├── orchestrator.py     the supervisor
+│   ├── database_agent.py   schema / PK / metadata analysis
+│   ├── rule_creator.py     plans which DQ checks to run
+│   └── sql_generator.py    writes DuckDB SQL for the planned checks
+│
+├── nodes/                  deterministic nodes (no LLM)
+│   ├── validator.py         rejects anything but read-only SELECTs
+│   ├── executor.py           runs SQL against DuckDB
+│   └── report_writer.py       appends issues to the report
+│
+├── utils/
+│   ├── database.py          DuckDB helpers (shared connection)
+│   └── helpers.py            misc (reads the knowledge base file)
+│
+├── knowledge_base/
+│   └── dq_checks.md          DQ check categories used by rule_creator
+│
+├── data/synthea_dataset/     sample tables to run against
+└── output/                    dq_report.csv lands here
