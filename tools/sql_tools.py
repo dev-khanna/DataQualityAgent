@@ -85,8 +85,34 @@ def generate_sql(runtime: ToolRuntime[None, DQState]) -> Command:
     state = runtime.state
     metadata = state["metadata"]
     planned_checks = state["planned_checks"]
+
+    # NEW: guard against being called out of order
+    if metadata is None or planned_checks is None:
+        return Command(update={
+            "messages": [ToolMessage(
+                content=(
+                    "Cannot generate SQL yet: metadata and/or planned checks "
+                    "are missing. Call extract_database_metadata and "
+                    "create_rule_plan first."
+                ),
+                tool_call_id=runtime.tool_call_id,
+            )],
+        })
+
     table_name = metadata["table_name"]
     validation_errors = state["validation_errors"]
+
+    if state["compiled_rules"] is not None and not validation_errors and not state["sql_valid"]:
+        return Command(update={
+            "messages": [ToolMessage(
+                content=(
+                    "SQL was already generated for this attempt and hasn't "
+                    "been validated yet. Call validate_sql before calling "
+                    "generate_sql again."
+                ),
+                tool_call_id=runtime.tool_call_id,
+            )],
+        })
 
     if not validation_errors:
         rules = _generate(metadata, planned_checks["checks"])

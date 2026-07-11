@@ -26,7 +26,10 @@ def main():
     for table_name in tables:
         print(f"\n=== {table_name} ===")
         state = initial_state_for_table(table_name, dq_report_so_far=dq_report)
-        app.invoke(state, config={"recursion_limit": 100})
+        try:
+            app.invoke(state, config={"recursion_limit": 100})
+        except Exception as e:
+            print(f"!! Table '{table_name}' failed and was skipped: {e}")
         dq_report = read_report_from_disk()
 
     print(f"\nDone. {len(dq_report)} issue(s) recorded.")

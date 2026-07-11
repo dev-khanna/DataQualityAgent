@@ -59,6 +59,18 @@ def create_rule_plan(runtime: ToolRuntime[None, DQState]) -> Command:
     generate_sql - checks must be planned before any SQL can be written
     for them."""
     metadata = runtime.state["metadata"]
+
+    if metadata is None:
+        return Command(update={
+            "messages": [ToolMessage(
+                content=(
+                    "Cannot plan checks yet: metadata has not been collected "
+                    "for this table. Call extract_database_metadata first."
+                ),
+                tool_call_id=runtime.tool_call_id,
+            )],
+        })
+
     knowledge_base = read_knowledge_base()
     checks = _plan_checks(metadata, knowledge_base)
 
