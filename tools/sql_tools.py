@@ -44,6 +44,9 @@ Rules:
 - Add "LIMIT 200" to every query so results stay a reasonable size.
 - If you are given a previous_error for a check, that means your last
   attempt at that check's SQL was rejected - fix that specific problem.
+- This is DuckDB, not MySQL/Postgres. For regex matching, use
+  regexp_matches(column, pattern) or the ~ operator - never the
+  REGEXP keyword, which DuckDB does not support and will fail to parse.
 """
 
 

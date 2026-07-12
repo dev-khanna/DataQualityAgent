@@ -19,7 +19,7 @@ KNOWLEDGE_BASE_PATH = BASE_DIR / "knowledge_base" / "dq_checks.md"
 REPORT_PATH = OUTPUT_DIR / "dq_report.csv"
 
 rate_limiter = InMemoryRateLimiter(
-    requests_per_second=0.15,   # tune to your actual free-tier RPM / 60, with margin
+    requests_per_second=0.15,   
     check_every_n_seconds=0.1,
     max_bucket_size=1,
 )
