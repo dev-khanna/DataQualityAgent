@@ -2,10 +2,8 @@
 Deterministic DuckDB helpers.
 
 One shared in-memory connection is used for the whole run. The graph is
-sequential - only one node ever runs at a time - so there's no
-concurrency to worry about, which means a single module-level connection
-is simpler than threading a connection object through every function
-call.
+sequential - only one node ever runs at a time - so a single
+module-level connection is simpler than threading one through every call.
 """
 
 import os
@@ -61,9 +59,10 @@ def get_sample_rows(table_name: str, limit: int = 5) -> list[dict]:
 
 
 def get_column_stats(table_name: str) -> list[dict]:
-    """distinct_count and null_count per column. This is the signal the
-    database agent's LLM call uses to reason about primary keys, instead
-    of guessing from column names alone."""
+    """distinct_count and null_count per column, for EVERY column - not
+    just ones that turn out to be candidate keys. Kept for every column
+    so future cross-table matching has cardinality signal to lean on
+    beyond column naming alone."""
     con = get_connection()
     stats = []
     for col in get_schema(table_name):
@@ -78,6 +77,17 @@ def get_column_stats(table_name: str) -> list[dict]:
             "null_count": null_count,
         })
     return stats
+
+
+def get_combo_distinct_count(table_name: str, columns: list[str]) -> int:
+    """Distinct-tuple count for a proposed composite key. Used to verify
+    an LLM's composite key guess against the actual data - never trust
+    a multi-column uniqueness claim without checking it."""
+    con = get_connection()
+    col_list = ", ".join(f'"{c}"' for c in columns)
+    return con.execute(
+        f'SELECT COUNT(*) FROM (SELECT DISTINCT {col_list} FROM "{table_name}") AS _combo'
+    ).fetchone()[0]
 
 
 def run_query(sql: str, sample_limit: int = 5) -> dict:

@@ -1,88 +1,98 @@
 """
 Shared graph state.
 
-`messages` is required by LangGraph's tool-calling loop - it's the
-transcript the orchestrator LLM reads to decide which tool to call
-next, and where each tool's result (as a ToolMessage) shows up right
-after it runs. Everything else is pipeline state: progress on the table
-being processed right now, plus the report that accumulates across the
-whole run.
+Metadata for every table is collected up front (see
+tools/database_tools.py) and stored as ColumnInfo/TableMetadata,
+BEFORE the agent loop ever starts - metadata_by_table is populated once
+into the initial state and never mutated afterward. This is what lets
+any tool (today: create_rule_plan; later: a cross-table check) reason
+about every table at once, since nothing is fetched turn-by-turn.
 
-There's no `next_agent` field anymore - routing IS the tool call the LLM
-makes each turn, so there's nothing left to store a routing decision in.
+Checks are tracked as a flat list spanning every table, each with its
+OWN status and retry_count - a failing check for one table must not
+block or re-trigger checks for a different table that already passed.
+
+related_table on PlannedCheck/CompiledRule is unused today (always
+None) - it exists now so that adding cross-table checks later is a
+logic change in rule_tools.py/sql_tools.py, not a state migration.
 """
-from typing import Annotated, Optional, Sequence, TypedDict
+from typing import Literal, Optional, TypedDict
 
 from langchain.agents import AgentState
-from langchain_core.messages import BaseMessage
-from langgraph.graph.message import add_messages
 
 
 class ColumnInfo(TypedDict):
-    column: str
+    name: str
     type: str
+
+
+class ColumnStat(TypedDict):
+    """null_count/distinct_count for one column. Used both for the full
+    per-column stats list (every column) and the candidate_keys subset
+    (columns that are 0-null and fully unique)."""
+    column: str
+    null_count: int
+    distinct_count: int
 
 
 class TableMetadata(TypedDict):
     table_name: str
-    columns: list[ColumnInfo]
     row_count: int
     sample_rows: list[dict]
-    primary_key: str
-    candidate_keys: list[str]
+    columns: list[ColumnInfo]
+    column_stats: list[ColumnStat]      # EVERY column, not just key candidates
+    candidate_keys: list[ColumnStat]    # subset of column_stats: 0 nulls, fully unique
+    primary_key: list[str]              # 1 column (simple) or 2+ (composite)
+    is_composite: bool
 
 
 class PlannedCheck(TypedDict):
-    check_name: str
+    check_name: str                 # must be globally unique across ALL tables
     check_type: str
+    table: str                      # table this check belongs to
+    related_table: Optional[str]    # unused for now - reserved for future cross-table checks
     column: str
     description: str
 
 
-class TableDQPlan(TypedDict):
-    table_name: str
-    checks: list[PlannedCheck]
-
-
 class CompiledRule(TypedDict):
     check_name: str
+    table: str
+    related_table: Optional[str]
     column: str
     sql: str
-
-
-class TableRuleSet(TypedDict):
-    table_name: str
-    rules: list[CompiledRule]
+    status: Literal["pending_validation", "valid", "invalid"]
+    validation_error: Optional[str]
+    retry_count: int
 
 
 class DQState(AgentState):
-    current_table: str
-    metadata: Optional[TableMetadata]
-    planned_checks: Optional[TableDQPlan]
-    compiled_rules: Optional[TableRuleSet]
-    validation_errors: list[str]
-    sql_valid: bool
+    tables: list[str]
+    metadata_by_table: dict[str, TableMetadata]
+    planned_checks: list[PlannedCheck]
+    compiled_rules: list[CompiledRule]
     execution_results: list[dict]
-    executed: bool
-    retry_count: int
     dq_report: list[dict]
 
 
-def initial_state_for_table(table_name: str, dq_report_so_far: list[dict]) -> DQState:
-    """Build the starting state for one table's agent run. Called once per table, from main.py's loop."""
+def initial_state_for_run(tables: list[str], metadata_by_table: dict[str, TableMetadata]) -> DQState:
+    """Build the single starting state for the WHOLE run. Called once
+    from main.py, after all tables' metadata has already been collected
+    deterministically - the agent never has to call a metadata tool
+    itself, it starts already knowing every table."""
     return DQState(
         messages=[{
             "role": "user",
-            "content": f"Run the data quality pipeline for table '{table_name}'.",
+            "content": (
+                f"Run the data quality pipeline for {len(tables)} table(s): "
+                f"{tables}. Metadata for every table has already been "
+                f"collected and is available to you."
+            ),
         }],
-        current_table=table_name,
-        metadata=None,
-        planned_checks=None,
-        compiled_rules=None,
-        validation_errors=[],
-        sql_valid=False,
+        tables=tables,
+        metadata_by_table=metadata_by_table,
+        planned_checks=[],
+        compiled_rules=[],
         execution_results=[],
-        executed=False,
-        retry_count=0,
-        dq_report=dq_report_so_far
+        dq_report=[],
     )
