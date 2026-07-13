@@ -2,13 +2,24 @@
 Entry point.
 
 Metadata for every table is collected deterministically, up front,
-before the agent ever runs - the orchestrator starts already knowing
-every table, rather than fetching metadata table-by-table.
+before either detection branch ever runs - nothing fetches metadata
+table-by-table.
+
+Once metadata is collected, the run splits into two independent
+sections (see the V2 architecture diagram): cross-table detection
+(cross_table.py - currently a no-op placeholder, called once with every
+table's metadata since cross-table reasoning inherently needs more than
+one table at a time) and single-table detection (orchestrator.py).
+
+Single-table detection runs ONE agent invocation PER TABLE, in a loop
+right here - not one invocation covering every table. Each table's
+run is independent; report_tools.read_report_from_disk/write_report is
+what stitches their results into one continuous report on disk.
 """
 
 from config import DATA_DIR, OUTPUT_DIR, REPORT_PATH
-from orchestrator import build_agent_graph
-from state import initial_state_for_run
+from cross_table import run_cross_table_detection
+from orchestrator import run_single_table_detection
 from tools.database_tools import extract_all_metadata
 from tools.report_tools import read_report_from_disk
 from utils.database import load_tables
@@ -32,13 +43,13 @@ def main():
     if skipped:
         print(f"Skipping table(s) with failed metadata extraction: {sorted(skipped)}")
 
-    app = build_agent_graph()
-    state = initial_state_for_run(usable_tables, metadata_by_table)
+    print("Metadata extraction complete. Splitting into cross-table and single-table detection...")
+    run_cross_table_detection(usable_tables, metadata_by_table)
 
-    try:
-        app.invoke(state, config={"recursion_limit": 300})
-    except Exception as e:
-        print(f"!! Run failed: {e}")
+    for table in usable_tables:
+        print(f"\n--- Single-table DQ checks: '{table}' ---")
+        run_single_table_detection(table, metadata_by_table[table])
+        print(f"    report now has {len(read_report_from_disk())} row(s) after '{table}'.")
 
     dq_report = read_report_from_disk()
     print(f"\nDone. {len(dq_report)} issue(s) recorded.")

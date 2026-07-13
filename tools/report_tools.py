@@ -2,8 +2,16 @@
 DQ Report Writer tool.
 
 Records one row per check that ran and found violations, plus one row
-per check that never got valid SQL within the retry limit - both
-per-CHECK now, spanning every table in the run.
+per check that never got valid SQL within the retry limit - one row per
+check for whichever table this run is scoped to.
+
+Called once per table (orchestrator.run_single_table_detection runs the
+whole agent graph once per table). state["dq_report"] arrives already
+seeded with everything previously written to disk by earlier tables
+(see state.initial_state_for_run), so _write_report_to_disk here is
+still a full overwrite of REPORT_PATH, but with the complete running
+total - not just this table's rows - which is what makes the file on
+disk accumulate correctly across tables instead of getting clobbered.
 """
 
 import csv
@@ -69,7 +77,8 @@ def read_report_from_disk() -> list[dict]:
 
 @tool
 def write_report(runtime: ToolRuntime[None, DQState]) -> Command:
-    """Record every check's results and persist to disk. Call once, as
+    """Record this table's check results and append them to the shared
+    report on disk (other tables' results are preserved). Call once, as
     the last step - after execute_sql has run for every valid check and
     no fixable checks remain."""
     state = runtime.state
@@ -102,7 +111,10 @@ def write_report(runtime: ToolRuntime[None, DQState]) -> Command:
     return Command(update={
         "dq_report": dq_report,
         "messages": [ToolMessage(
-            content=f"Report written - {len(new_rows)} row(s) across {len(state['tables'])} table(s).",
+            content=(
+                f"Report written - {len(new_rows)} row(s) added for table "
+                f"'{state['tables'][0]}'. Report now has {len(dq_report)} row(s) total."
+            ),
             tool_call_id=runtime.tool_call_id,
         )],
     })

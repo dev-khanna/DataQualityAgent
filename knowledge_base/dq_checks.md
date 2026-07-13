@@ -1,269 +1,245 @@
-# Single-Table Data Quality Knowledge Base
-
-## Purpose and Scope
-
-This document is a permanent reference for reasoning about data quality within a single, isolated table. It is intended to be supplied as background knowledge to an autonomous planning agent whose job is to decide *what to check* and *why* when it encounters a table, based only on the table name, column names, data types, primary/candidate keys, and sample values.
-
-This knowledge base deliberately excludes anything that requires information outside the table itself: joins, foreign key relationships, referential integrity, master data reconciliation, lineage tracing, cross-table consistency, and business rules that cannot be inferred from the table's own structure and contents. Everything here is inferable from one table in isolation.
-
-For every issue type, this document describes what it is, why it happens, how an experienced data engineer recognizes it, its detection category, and its typical importance. No implementation instructions, query language, or software-specific behavior is included — this is conceptual, reusable domain knowledge.
-
----
-
-## Part I — Foundational Framework
-
-### 1.1 The Three Detection Categories
-
-Every data quality issue in this knowledge base is classified into one of three categories. This classification determines the *nature of reasoning* an agent must apply, not just the technique used.
-
-- **Deterministic** — The issue can be identified with a binary, unambiguous rule applied to a single value or row. There is no judgment call: a value either satisfies the rule or it does not (e.g., a field is empty, a value fails a pattern, a date is not a valid calendar date). Deterministic checks require only the definition of a rule; they do not require inspecting the broader dataset.
-- **Statistical** — The issue can only be identified by examining the distribution, frequency, or shape of values across many rows. A single value in isolation is not obviously wrong; it is the aggregate pattern that reveals the anomaly (e.g., a value is 40 standard deviations from the mean, or a category that never previously exceeded 5% of rows suddenly represents 95%). Statistical checks require a population, a baseline, or a distribution to compare against.
-- **Semantic** — The issue requires real-world, domain-level understanding of what a column *means* to determine whether a value is sensible, even though the value is perfectly valid in type and format. Semantic issues sit at the boundary of what can be inferred from structure alone; strong semantic reasoning is possible from naming conventions and value co-occurrence even without external business documentation.
-
-Many real-world issues span more than one category (for example, unit-of-measure mixing is fundamentally a semantic problem — "this column means kilograms" — but is *detected* through statistical means, such as a bimodal distribution). Where this overlap exists, it is called out explicitly.
-
-### 1.2 The Importance Framework
-
-Each issue is rated for typical relative importance. This rating reflects how severely the issue tends to distort downstream analytics, decision-making, or system behavior if left uncorrected, not how common it is.
-
-- **HIGH** — Issues that structurally break downstream processing, silently corrupt calculations, cause duplicate counting, or make a dataset actively misleading rather than merely imperfect.
-- **MEDIUM** — Issues that degrade quality, trustworthiness, or usability, and will eventually cause problems, but do not immediately invalidate results or break processing.
-- **LOW** — Cosmetic or minor issues that are worth flagging but rarely change conclusions or break systems on their own.
-
-Importance is contextual — a LOW-rated issue in a general-purpose table may become HIGH if the column in question is a primary key, a financial amount, or a join/lookup candidate. An agent should treat these ratings as priors, not absolutes, and adjust based on the specific role a column appears to play (identifier, monetary amount, timestamp, category flag, free-text description, etc.).
-
-### 1.3 How an Agent Should Read a Table Before Checking It
-
-Before selecting checks, an experienced engineer forms a mental model of the table:
-
-1. **Grain** — What does one row represent? (a transaction, a person, a daily snapshot, an event). This is inferred from the table name, the primary/candidate key, and whether timestamps or sequence-like columns are present.
-2. **Roles of columns** — Which columns are identifiers, which are measures, which are categorical/dimensional, which are free text, which are temporal. Naming patterns (`_id`, `_at`, `_date`, `is_`, `has_`, `_flag`, `_code`, `_status`, `_amount`, `_pct`) are strong signals even without documentation.
-3. **Expected cardinality** — Whether a column should be unique per row (an identifier), low-cardinality (a status/category), or high-cardinality/continuous (an amount or free text).
-4. **Expected relationships between columns within the row** — Whether any columns are logically dependent on each other (a start and end date, a status and a corresponding detail field, a quantity and a total).
-
-This mental model is what allows an agent to select the *right subset* of checks below rather than running everything indiscriminately against every column.
-
----
-
-## Part II — Completeness
-
-Completeness evaluates whether the information required to make a row useful is actually present — not merely whether a system-level `NULL` is absent, but whether meaningful, usable content exists.
-
-### 2.1 Hidden and Polymorphic Nulls
-**What it is:** Missing values disguised as non-null content — empty strings, whitespace-only strings, or sentinel placeholder text such as "N/A", "unknown", "TBD", "none", "-", or "999".
-**Why it occurs:** Source applications lack mandatory field enforcement, or integration pipelines insert placeholder text specifically to satisfy a non-null constraint without a genuine value being available.
-**Recognition:** An experienced engineer treats any true null-rate calculation as incomplete until it also accounts for a frequency scan of the most common values in a column — a suspiciously high frequency of short, generic, or repeated strings is a signal that "null" is being encoded as text rather than as an actual null. Whitespace-only strings are a specific and common trap because they pass naive "is not null" and "is not empty string" checks simultaneously.
-**Category:** Deterministic.
-**Importance:** HIGH — hidden nulls silently deflate true completeness metrics and corrupt any aggregation or grouping performed on the column.
-
-### 2.2 Partial Record Population
-**What it is:** A row exists and passes basic insertion, but lacks enough populated fields to be operationally meaningful — for example, a customer record with only a first name and no other identifying or contact information.
-**Why it occurs:** Multi-step data entry or onboarding flows that users abandon partway through; asynchronous form submissions that capture partial state before a session ends; upstream systems that create a placeholder row before the rest of the data arrives (and the rest never does).
-**Recognition:** Engineers assess the density of populated fields per row rather than evaluating each column independently — a row can pass every individual completeness check and still be functionally useless if only one or two of many expected fields are filled. Distinguishing "acceptable optional fields" from "fields that jointly define usefulness" requires understanding which fields are core to the row's grain.
-**Category:** Deterministic.
-**Importance:** MEDIUM to HIGH, depending on whether the populated fields are sufficient to support the table's primary use case.
-
-### 2.3 Missing Entire Partitions
-**What it is:** A contiguous, expected slice of data — most often a date range, but potentially any expected segment such as a source system or batch — is entirely absent from the table, rather than merely having incomplete rows within it.
-**Why it occurs:** A scheduled load failed silently, an upstream system had an outage, an extraction job timed out before writing any rows for that segment, or a partition was accidentally dropped or overwritten.
-**Recognition:** This is invisible at the row level — every row that exists may be perfectly valid — and can only be found by comparing the *set of partitions actually present* against the *set of partitions that should exist* given the table's known cadence (e.g., daily, hourly). A gap in a time series of row counts by day/week/month is the classic signature.
-**Category:** Deterministic (once the expected cadence is known, the check itself is a simple presence/absence test), though establishing the expected cadence often requires observing the table's own history.
-**Importance:** HIGH — missing partitions cause systematic undercounting and are among the most damaging completeness failures because they are easy to miss when only spot-checking individual rows.
-
----
-
-## Part III — Validity and Format Conformance
-
-Validity evaluates whether data that *is* present structurally and syntactically conforms to the rules implied by its column name, declared type, and observed patterns elsewhere in the same column.
-
-### 3.1 Syntactic and Format Violations
-**What it is:** Values that exist but break an expected structural pattern — an email address without an "@" symbol, phone numbers containing letters, inconsistent date formatting within the same column, or postal codes with the wrong number of characters.
-**Why it occurs:** Source applications accept free-text input without validating structure at the point of entry, or data merged from multiple upstream systems each formatted values differently before consolidation.
-**Recognition:** The most reliable technique is to profile the observed patterns actually present in a column and compare their frequency distribution — if 95% of values in a column named `phone_number` follow one shape and 5% follow a visibly different shape, the minority is very likely a format violation rather than a legitimate variant. Column *naming* strongly narrows down which pattern family to expect (an `_email` suffix implies one structural family, a `_zip`/`_postal_code` suffix implies another).
-**Category:** Deterministic.
-**Importance:** MEDIUM to HIGH — depends on whether the column is used downstream for matching, contact, or system integration (in which case format errors are functionally blocking) versus purely descriptive display (in which case they are cosmetic).
-
-### 3.2 Domain and Allowed-Value Violations
-**What it is:** A field contains a value outside its defined set of permissible categories — an unrecognized country code, or a status value that doesn't match any of the table's other observed status values.
-**Why it occurs:** Incomplete mapping during system migrations or integrations; reference/lookup value sets that were updated at the source but never propagated; free-text entry into what should be a constrained field; legacy values that predate a later restriction of the allowed set.
-**Recognition:** For any column that behaves categorically (low distinct-value count relative to row count, especially with naming like `_status`, `_type`, `_category`, `_code`), an engineer enumerates the full distinct value set and inspects it for outliers — values that appear only once or a handful of times, unexpected casing variants of an otherwise-valid value (e.g., "active" vs. "Active" vs. "ACTIVE"), or values that look like a typo of a legitimate category.
-**Category:** Deterministic once the allowed set is known; establishing the allowed set from the table alone is closer to semantic/statistical inference (inferring the set from what is common and treating rare distinct values as suspect).
-**Importance:** HIGH for columns that drive branching logic or reporting segmentation; MEDIUM otherwise.
-
-### 3.3 Data Type Mismatches
-**What it is:** A column stores values in an inappropriate underlying type for its meaning — numeric identifiers stored as text, dates stored as free-text strings, or boolean concepts inconsistently represented as `1`/`0` in some rows and `Y`/`N`/`true`/`false` in others.
-**Why it occurs:** File-based exchange formats (spreadsheets, delimited text) have no native strong typing, so numeric-looking values lose leading zeros, gain thousands-separators, or get auto-converted by intermediate tools; schema-on-read systems store everything as text by default until explicitly cast.
-**Recognition:** A column whose declared or apparent type is generic text but whose values are overwhelmingly numeric- or date-shaped is a signal worth investigating, especially when a subset of values contain stray formatting characters (commas, currency symbols, extra whitespace) that would prevent a clean type cast. Mixed boolean representations are recognized by enumerating distinct values in a column expected to be binary and finding more than two semantically-equivalent forms.
-**Category:** Deterministic.
-**Importance:** HIGH — type mismatches break arithmetic, sorting, and comparison operations and often fail silently rather than throwing visible errors.
-
-### 3.4 Precision and Scale Truncation
-**What it is:** Numeric or string data that has been unexpectedly shortened — financial values losing decimal precision, or long text fields cut off mid-word.
-**Why it occurs:** A downstream system enforces a rigid field-length or column-width limit at ingestion and silently truncates anything longer; floating-point representation and casting between numeric types introduces rounding or precision loss.
-**Recognition:** A conspicuous cluster of string values whose length is exactly at (or one below) a round number such as 50, 100, or 255 characters is a strong signal of length-based truncation, especially if a meaningful number of those values appear to end mid-word rather than at a natural sentence boundary. For numeric fields, monitoring the distribution of decimal places observed in a column that should represent currency or a precise measurement — and flagging a sudden narrowing of that distribution — reveals precision loss.
-**Category:** Deterministic (for detecting the pattern), though the interpretation that it represents *truncation* rather than legitimate short values is closer to semantic judgment.
-**Importance:** MEDIUM to HIGH depending on whether the affected column is financial or otherwise precision-sensitive.
-
-### 3.5 Encoding and Character Set Corruption
-**What it is:** Text fields containing garbled, unreadable symbol sequences — commonly called "mojibake" — where recognizable characters are replaced with nonsensical substitutions.
-**Why it occurs:** A mismatch between the character encoding used to write the data and the encoding used to read it, most often when UTF-8 encoded text is misinterpreted under a single-byte encoding standard (or the reverse) somewhere in the data's transit path.
-**Recognition:** Engineers scan text columns for recurring, non-random sequences of special or unusual symbols that appear anywhere accented characters, non-Latin scripts, or certain punctuation (curly quotes, em-dashes) would be expected — these corrupted sequences tend to repeat in a structured, recognizable way rather than being genuinely random, which distinguishes them from ordinary noisy free text.
-**Category:** Deterministic.
-**Importance:** MEDIUM — usually cosmetic and localized to display, but can be HIGH if the corrupted values are also used as matching or grouping keys, since visually similar corrupted variants will be treated as distinct values.
-
----
-
-## Part IV — Uniqueness
-
-Uniqueness ensures each distinct real-world entity or event is represented exactly once in the table, so that counts, sums, and aggregations are not inflated by unintended repetition.
-
-### 4.1 Exact Intra-Table Duplicates
-**What it is:** Two or more rows that are identical across every column, representing the same event or record repeated verbatim.
-**Why it occurs:** Retry logic in an upstream pipeline resubmits a record after a failure without idempotency protection; a source application allows the same form submission to be sent twice; a batch job is re-run without first clearing its prior output.
-**Recognition:** Engineers compare the count of distinct full rows to the count of total rows; any gap indicates exact duplication. This is most meaningful when there is no declared primary key, since a table with a properly enforced unique key cannot have exact duplicates by construction — the presence of exact duplicates is itself evidence that no such constraint is being enforced.
-**Category:** Deterministic.
-**Importance:** HIGH — directly inflates counts, sums, and any downstream aggregate.
-
-### 4.2 Intra-Table Fuzzy and Near-Duplicates
-**What it is:** Multiple rows that represent the same real-world entity but differ in spelling, formatting, capitalization, abbreviation, or minor detail — "John Smith" versus "Jon Smith", or "Acme Corp" versus "Acme Corporation".
-**Why it occurs:** Records are created through multiple independent entry channels (manual entry, imports, web forms, integrations) with no deduplication or entity-matching applied at the point of ingestion, allowing the same entity to accumulate slightly different representations over time.
-**Recognition:** This requires comparing values *across rows* for similarity rather than checking any single value in isolation — string-distance closeness, shared tokens, or matching normalized forms (lowercased, punctuation-stripped, whitespace-collapsed) between otherwise-distinct values in an identity-bearing column (names, company names, addresses) are the signal. High-cardinality free-text identity columns are the primary target for this check; low-cardinality categorical columns are not, since apparent "near-duplicates" there are more likely genuine distinct categories.
-**Category:** Statistical (probabilistic matching across the population of values).
-**Importance:** MEDIUM to HIGH — silently fragments what should be a single entity into several, distorting any per-entity aggregation.
-
-### 4.3 Primary Key Uniqueness Violations
-**What it is:** The column or column-combination intended to uniquely identify each row contains duplicate values.
-**Why it occurs:** Bulk loads that bypass constraint enforcement for performance reasons; auto-increment or sequence-generation collisions, often after a system migration or restart; manual inserts that bypass the application layer where uniqueness is normally enforced.
-**Recognition:** Engineers identify the declared or candidate primary key (often inferable from a column literally named `id`, `_id`, or a composite of columns whose combined values are expected to be unique per the table's grain) and check the frequency distribution of that key — any value with a count greater than one is a violation. When no explicit primary key is declared, an engineer infers candidate keys by testing which column or column-combination has a distinct-value count equal to the total row count.
-**Category:** Deterministic.
-**Importance:** HIGH — this is one of the most severe issues possible in a single table, since it breaks the fundamental assumption that one row equals one entity, and cascades into every other quality dimension.
-
----
-
-## Part V — Intra-Record Consistency and Logic
-
-Consistency evaluates whether the fields *within a single row* agree with each other and with basic physical and temporal reality, independent of any other row.
-
-### 5.1 Intra-Record Contradictions
-**What it is:** Two or more fields in the same row logically conflict — a marital status of "Single" alongside a fully populated spouse name field, or a status of "Cancelled" alongside a populated shipment tracking number.
-**Why it occurs:** An application updates one field in response to a business event but fails to update a logically dependent field at the same time, leaving the record in an internally inconsistent state.
-**Recognition:** This requires identifying pairs or groups of columns whose *names* imply a dependency relationship (a status field and a detail field that should only be populated for certain status values; a boolean flag and a field that should only exist when the flag is true) and checking whether that implied relationship actually holds across the data. Column naming conventions are the primary clue an agent has to infer these dependencies without external documentation.
-**Category:** Semantic.
-**Importance:** MEDIUM to HIGH depending on how central the contradicting fields are to the table's core purpose.
-
-### 5.2 Invalid Temporal Logic
-**What it is:** Dates or timestamps within a single row that contradict chronological reality — an end date before its corresponding start date, a shipped date before an order date, or a modified timestamp earlier than a created timestamp.
-**Why it occurs:** Out-of-order event processing in distributed systems, clock synchronization drift between servers, network delays that cause a "later" event to be recorded with an earlier timestamp, or users manually overriding date fields in a source application without validation.
-**Recognition:** Any table with two or more temporal columns should have the *implied* ordering between them checked — this ordering is usually obvious from naming (`start`/`end`, `created`/`updated`, `order`/`ship`/`deliver`) even without documentation. A violation is any row where the naturally-expected earlier date is chronologically later than the naturally-expected later date.
-**Category:** Deterministic.
-**Importance:** HIGH — temporal logic violations often indicate deeper pipeline timing problems and corrupt any duration or sequence-based calculation.
-
-### 5.3 Semantic Validity Failures
-**What it is:** A value that is syntactically and type-correct but represents a real-world impossibility — a negative age, an age of 300 years, or a pregnancy-related field populated for a record otherwise indicated as male.
-**Why it occurs:** Source systems enforce structural validation (correct type, correct format) but do not enforce deeper real-world business logic, because that logic requires domain knowledge the input form or schema does not encode.
-**Recognition:** This is the deepest form of single-table reasoning: an engineer applies general real-world knowledge about what a column's name implies is possible (ages cannot be negative or exceed roughly 120; a percentage column should not exceed 100 unless explicitly scaled; a quantity column should not be negative unless the table clearly represents adjustments or returns) and checks observed values against that boundary. This differs from a plain outlier check (3.1 in the accuracy section) because the value isn't merely statistically unusual — it is categorically impossible regardless of the surrounding distribution.
-**Category:** Semantic.
-**Importance:** HIGH — these values are unambiguous errors (not just unusual data points) and typically indicate an entry, mapping, or transformation defect.
-
----
-
-## Part VI — Accuracy and Statistical Anomalies
-
-These checks determine whether structurally valid data represents a realistic and stable state, using the distribution of the data itself as the basis for judgment.
-
-### 6.1 Domain Outliers and Extreme Values
-**What it is:** Values that are technically valid for their type but statistically or physically implausible given the rest of the column's distribution — a recorded temperature of 10,000°C, or a single transaction of $10,000,000 in a column where typical values are two or three orders of magnitude smaller.
-**Why it occurs:** Manual entry mistakes (an extra digit, a misplaced decimal point), unit confusion at the point of entry, or upstream aggregation/transformation errors that inflate a value before it lands in the table.
-**Recognition:** Engineers characterize the typical range of a numeric column (using measures such as spread around the mean or the interquartile range) and flag values that fall far outside that range. The judgment of "far outside" should account for the column's natural variability — a column that is naturally highly variable (e.g., transaction amounts across wildly different customer sizes) tolerates a wider range before a value is truly suspect than a column that is naturally tightly clustered (e.g., a percentage or a rating score).
-**Category:** Statistical.
-**Importance:** MEDIUM to HIGH — a small number of extreme outliers can dominate sums and averages even when they represent a tiny fraction of rows.
-
-### 6.2 Unit of Measure Mismatches
-**What it is:** A single column invisibly mixes more than one unit of measurement — weights recorded in both kilograms and pounds, or monetary values recorded in both raw units and thousands, within the same column.
-**Why it occurs:** Data streams from multiple sources or regions are merged without unit normalization, or different operators/systems interpret an ambiguous input field differently.
-**Recognition:** The telltale sign is a distribution with two or more distinct clusters (a bimodal or multimodal shape) in a column that should otherwise represent one continuous, unimodal measurement — for example, a weight column with one cluster around 150 and another around 70 is consistent with pounds and kilograms for human body weight coexisting in the same field. This is fundamentally a semantic problem (the column has two different *meanings* mixed together) but its footprint is statistical (an unnatural distribution shape), which is why it spans both categories.
-**Category:** Statistical, with semantic origin.
-**Importance:** HIGH — this error is invisible at the row level and produces systematically wrong aggregates and averages until identified.
-
-### 6.3 Data Skew and Distribution Drift
-**What it is:** The statistical properties of a column change unexpectedly over time or deviate from a previously stable pattern — a category that suddenly accounts for the overwhelming majority of rows, or the mean and variance of a numeric field shifting sharply.
-**Why it occurs:** A pipeline transformation bug that silently maps many distinct values into a single fallback category, an upstream configuration change that alters how a field is populated, or a genuine and unannounced shift in the underlying business process being recorded.
-**Recognition:** This requires a baseline — either a historical snapshot of the same table or an internally stable segment (e.g., an earlier date partition) to compare against — and measuring how far the current distribution has moved from that baseline. A category value newly dominating a column that was previously well-distributed, or a numeric column's central tendency moving by a large margin between periods, are the classic signatures.
-**Category:** Statistical.
-**Importance:** MEDIUM to HIGH — drift corrupts any model or report trained or calibrated on the historical pattern, even though every individual value remains structurally valid.
-
-### 6.4 Record Count Anomalies
-**What it is:** A sudden, large spike or drop in the total number of rows landing in the table relative to its historical baseline volume.
-**Why it occurs:** A pipeline transformation error, a dropped ingestion event, a failed or partially-failed batch job, or an unintended join/expansion upstream that multiplies rows before they reach the table.
-**Recognition:** Engineers track the row count (overall, or by natural partition such as day) over time and compare each new observation against the recent historical trend and its normal variability, flagging counts that fall well outside the expected range in either direction.
-**Category:** Statistical.
-**Importance:** HIGH — count anomalies are often the earliest and most reliable signal that something upstream has broken, frequently preceding and explaining other quality issues found elsewhere in the table.
-
----
-
-## Part VII — Timeliness
-
-Timeliness evaluates whether the data is current enough, relative to its own expected refresh cadence, to be trustworthy for the decisions it is meant to support.
-
-### 7.1 Data Staleness and Ingestion Lag
-**What it is:** Data that is factually correct about the past but has arrived, or been refreshed, much later than expected, making it too old to reliably represent the present state of whatever it describes.
-**Why it occurs:** Network delays, a delayed batch schedule, timeouts in the ingestion process, or an upstream source that itself has become slow or intermittent.
-**Recognition:** Engineers compare the most recent timestamp present in the table (a `created_at`, `updated_at`, or equivalent column) against the current time and against the table's known or inferred refresh cadence — a table that historically updates daily but has not received new rows in several days is stale even though every existing row remains individually valid.
-**Category:** Deterministic.
-**Importance:** MEDIUM to HIGH depending on how time-sensitive the table's use case is; near-real-time operational tables treat staleness as HIGH, while slowly-changing reference tables treat it as LOW.
-
----
-
-## Part VIII — Semantics and Hidden Meaning
-
-Semantic failures occur when a table's physical structure remains completely intact, but the true meaning, interpretation, or contextual accuracy of the values it contains has been corrupted.
-
-### 8.1 Improper Default Substitution
-**What it is:** `NULL` values that have been replaced with sentinel placeholder values that are technically valid data — dates such as "1900-01-01" or "9999-12-31", or numeric sentinels such as "-1" or "0" — rather than being left null or properly flagged as missing.
-**Why it occurs:** A pipeline or application enforces a non-null constraint but has no genuine value to insert, so it substitutes an arbitrary placeholder to satisfy the constraint, treating the missing-value problem as solved when it has only been hidden.
-**Recognition:** Engineers scan date and numeric fields for a disproportionately high frequency of exact, suspicious edge-case values — dates sitting exactly at the earliest or latest representable value, or an unnatural spike of exact zeroes in a field where a smooth, continuous distribution would otherwise be expected. The key signal is *disproportion*: a legitimate value of zero or a legitimate historical date is expected occasionally, but an outsized spike concentrated on one exact value is a strong indicator of substitution rather than genuine data.
-**Category:** Semantic.
-**Importance:** HIGH — these substituted values silently distort every downstream calculation involving age, duration, or numeric aggregation, and are especially dangerous because they pass all type and format validation.
-
-### 8.2 Semantic Drift
-**What it is:** The underlying business meaning of a column changes silently over time without any corresponding change to its data type, name, or physical schema — for example, a column tracking "active customer" status quietly being redefined from a 90-day purchase window to a 30-day login window.
-**Why it occurs:** Definitions evolve as business processes change, but historical data is never reprocessed under the new definition, and the schema itself gives no indication that a redefinition has occurred.
-**Recognition:** This is the hardest issue in this knowledge base to detect from a single table alone, since the schema is identical before and after the drift. The most reliable single-table signal is an unexplained shift in an aggregated metric derived from the column (an inflection point where a proportion, rate, or count meaningfully and permanently changes level) that cannot be attributed to volume, seasonality, or any other already-identified quality issue. Because true confirmation requires external business context, an agent operating on a single table should treat this as a *hypothesis to raise* rather than a *fact to assert*.
-**Category:** Semantic.
-**Importance:** MEDIUM — difficult to detect with certainty from structure alone, but potentially HIGH impact if confirmed, since it silently invalidates historical comparisons.
-
----
-
-## Part IX — Column-Type Reasoning Guide
-
-This section consolidates the dimensions above into practical guidance organized by the *kind* of column being examined, since this is typically how an agent will approach an unfamiliar table — column by column.
-
-### 9.1 Identifier Columns (`_id`, `_key`, `_code` used as row identity)
-Primary relevant issues: Primary Key Uniqueness Violations (5.3... see 4.3), Exact Duplicates (4.1), Data Type Mismatches (3.3 — identifiers stored inconsistently as text versus numeric), Hidden Nulls (2.1 — a missing identifier is especially severe). An agent should first determine whether a column is functioning as the row's identity before applying any of these checks with high priority.
-
-### 9.2 Categorical / Enumerated Columns (`_status`, `_type`, `_category`, `_flag`)
-Primary relevant issues: Domain and Allowed-Value Violations (3.2), Data Skew and Distribution Drift (6.3), Intra-Record Contradictions (5.1) when paired with dependent detail fields. An agent should always enumerate the full distinct value set for these columns early, since it cheaply reveals several issue types at once.
-
-### 9.3 Numeric / Measure Columns (`_amount`, `_price`, `_qty`, `_pct`, `_score`)
-Primary relevant issues: Domain Outliers (6.1), Unit of Measure Mismatches (6.2), Precision and Scale Truncation (3.4), Semantic Validity Failures (5.3 — impossible values such as negative counts), Improper Default Substitution (8.1 — sentinel zeroes or negative-one values).
-
-### 9.4 Temporal Columns (`_date`, `_at`, `_time`, `_timestamp`)
-Primary relevant issues: Invalid Temporal Logic (5.2), Syntactic and Format Violations (3.1 — mixed date formats), Improper Default Substitution (8.1 — sentinel min/max dates), Data Staleness (7.1), Missing Entire Partitions (2.3) when the column defines the table's natural time series.
-
-### 9.5 Free-Text Columns (names, descriptions, addresses, notes)
-Primary relevant issues: Fuzzy and Near-Duplicates (4.2), Encoding Corruption (3.5), Precision/Length Truncation (3.4), Hidden Nulls disguised as placeholder text (2.1).
-
-### 9.6 Boolean / Binary Columns (`is_`, `has_`)
-Primary relevant issues: Data Type Mismatches (3.3 — inconsistent true/false representations), Intra-Record Contradictions (5.1) when paired with a dependent field that should only be populated for one of the two states.
-
----
-
-## Part X — Prioritization Heuristics for an Autonomous Agent
-
-When planning which checks to run against an unfamiliar table under limited time or compute, the following heuristics reflect how experienced engineers triage:
-
-1. **Start with identity.** Establish the table's grain and its primary/candidate key before anything else — Uniqueness violations on the key (4.3) invalidate the reliability of every other check performed afterward, since they mean "one row" does not actually mean "one entity."
-2. **Check volume and partition coverage next.** Record Count Anomalies (6.4) and Missing Partitions (2.3) are cheap to check and, if present, often explain or amplify many issues found later — it is more efficient to discover a missing day of data before spending effort profiling individual columns within that day.
-3. **Profile distinct values before writing rules.** Enumerating the distinct value set of every low-cardinality column early reveals Domain Violations (3.2), Hidden Nulls (2.1), Data Type Mismatches (3.3), and gives the raw material needed for Semantic Drift hypotheses (8.2), all from a single, cheap operation.
-4. **Reserve statistical and semantic checks for columns where they matter most.** Outlier detection (6.1), fuzzy matching (4.2), and unit-mismatch detection (6.2) are comparatively expensive and are best targeted at columns already identified as measures or identity-bearing free text, rather than run uniformly across every column.
-5. **Treat semantic findings as hypotheses, not verdicts.** Because Part VIII issues cannot be fully confirmed from a single table alone, an agent should surface them with appropriate confidence framing rather than presenting them with the same certainty as a deterministic rule violation.
+_KNOWLEDGE_BASE = """<knowledge_base version="2.0" scope="single_table">
+
+<purpose>
+This KB defines classes of data quality defects, not instances of them. Each category
+gives the planning agent a generic SIGNAL (how to notice the pattern from schema/stats
+alone, without a human naming the column), a HEURISTIC (the general reasoning rule), and
+a CHECK TEMPLATE (a parameterized check shape, not a literal rule). The agent should be
+able to derive a correct check for a table it has never seen, in a domain it has never
+seen, using only this reasoning - the same way a rule for "check all foreign-key-shaped
+columns for fill correlation with their dependent fields" generalizes across insurance
+claims, e-commerce orders, or logistics shipments without modification.
+
+Category names below are canonical `check_type` values for the planning agent's
+output_format.
+</purpose>
+
+<how_to_use>
+Run <discovery_protocol> first - it produces a map of column roles and column groups.
+Every category below consumes that map as its input rather than looking at raw column
+names case-by-case. After all per-category checks are planned, run
+<category name="Root-Cause Clustering"> as a final pass over the *planned checks
+themselves*, not the columns, to merge checks that are likely the same underlying defect.
+</how_to_use>
+
+<discovery_protocol name="column_relationship_discovery">
+  <goal>Build a semantic map of the table before planning any checks, so later categories
+  have something to reason over besides a flat column list.</goal>
+  <method>
+  - Role-classify every column from name + dtype + cardinality: Identifier/Key-like,
+    Categorical (low cardinality, repeated values), Measure (numeric, continuous),
+    Temporal, Free-Text, Boolean/Flag.
+  - Detect COMPANION GROUPS: columns whose names share a stem and differ only by a
+    qualifier (numeric suffix like "1"/"2", role words like "Primary"/"Secondary",
+    "Old"/"New", "Requested"/"Approved"). Treat each group as one semantic unit, not N
+    independent columns.
+  - Detect ENTITY-DEPENDENT columns: an Identifier/Key-like column (e.g. anything ending
+    "ID", "Ref", "Code") implies the existence of a referenced entity. Any other column
+    whose name shares the same qualifier word as that ID (e.g. an ID column qualified
+    "Secondary" and a Status/Date/Amount column also qualified "Secondary") is a
+    candidate DEPENDENT column - its population should logically track the ID's
+    population.
+  - Detect MAGNITUDE-RELATED measure pairs: two or more numeric columns whose names
+    imply a known accounting/quantity relationship regardless of domain - one measures
+    a whole and another a part of it (totals vs. components), or one is an input and the
+    other a downstream derived value (e.g. anything read as "paid/covered/settled" vs.
+    "billed/charged/revenue/premium"; "count" vs. "total"; "requested" vs. "approved").
+    Name-pattern matching plus dtype is sufficient; no domain knowledge is required to
+    flag the pair as worth a ratio check, only to interpret the result.
+  </method>
+  <output>A structured map: {column -> role}, {companion_group -> [columns]},
+  {id_column -> [dependent columns]}, {measure_pair -> [column_a, column_b]}. Every
+  category below reads from this map instead of re-deriving it.</output>
+</discovery_protocol>
+
+<category name="Uniqueness & Identity">
+  <definition>The declared or inferred grain of the table is violated: duplicate keys,
+  duplicate full rows, or a key that fails to uniquely identify a record.</definition>
+  <generic_signal>Any column classified Identifier/Key-like by the discovery protocol,
+  plus any minimal column combination whose cardinality equals row count.</generic_signal>
+  <heuristic>Plan a strict uniqueness check on the primary key. Separately plan an
+  exact-duplicate-row check across all non-key columns, since a duplicate key and a
+  duplicate row are different failure modes with different causes.</heuristic>
+  <check_template>{table}_primary_key_uniqueness; {table}_exact_duplicate_rows</check_template>
+  <guardrail>A composite natural key with legitimately repeating components (e.g. one
+  patient across many claims) is not a violation - only flag if the column(s) were
+  identified as the grain-defining key.</guardrail>
+</category>
+
+<category name="Structural Completeness">
+  <definition>A column is missing values it is structurally expected to have, based on
+  its own declared role, independent of any other column.</definition>
+  <generic_signal>Compute null-rate for EVERY column, not just ones a human named. Two
+  sub-signals matter independently: (a) partial nullness on a column whose role implies
+  it should usually be populated (an Identifier, a required Measure), and (b) 100%
+  nullness on any column at all.</generic_signal>
+  <heuristic>Plan a completeness sweep across all columns, not a hand-picked subset. A
+  column that is null in 100% of rows is always worth flagging regardless of its
+  declared purpose - a column that carries zero information is a defect class of its
+  own (see Structural Degeneracy) even before considering *why* it's empty.</heuristic>
+  <check_template>{table}_{column}_completeness_sweep (generated for every column)</check_template>
+  <guardrail>Do not assume partial nullness is a defect on its own - cross-reference
+  against Intra-Record Contradictions below before concluding a null is "wrong" rather
+  than "legitimate business state."</guardrail>
+</category>
+
+<category name="Hidden and Polymorphic Nulls">
+  <definition>Missingness disguised as a real value: whitespace, sentinel strings
+  ("N/A", "NONE", "-", "UNKNOWN"), sentinel numbers (-1, 0 used as absence), or sentinel
+  dates (far-past/far-future placeholders like 1900-01-01 or 9999-12-31).</definition>
+  <generic_signal>For Categorical/Free-Text columns: any value that is empty after
+  trimming whitespace, or any value that recurs suspiciously often relative to the
+  column's other cardinality and resembles a placeholder token. For Temporal columns:
+  any date sitting far outside the observed distribution in a suspiciously round way
+  (year boundaries, epoch values). For Measures: a fixed sentinel value (often 0, -1, or
+  999-repeated) that recurs far more often than a continuous distribution would predict.</generic_signal>
+  <heuristic>Don't wait for a human to name the sentinel - profile each column's value
+  distribution and flag any single value whose frequency is a statistical outlier
+  relative to the rest of that column's distribution, when the column's role is not
+  Boolean/Categorical-by-design.</heuristic>
+  <check_template>{table}_{column}_polymorphic_null_scan</check_template>
+  <guardrail>A uniform, dataset-wide constant is a different pattern than a polymorphic
+  null and belongs in Structural Degeneracy instead - polymorphic nulls are
+  characterized by masquerading as *one value among several legitimate ones*, not by
+  being the only value present.</guardrail>
+</category>
+
+<category name="Validity and Domain Conformance">
+  <definition>A value falls outside the set of values the column's role or observed
+  distribution implies are legitimate.</definition>
+  <generic_signal>For any Categorical column, the EMPIRICAL domain (the distinct values
+  actually observed) is itself a signal even with no external spec: a small number of
+  rows holding a value that no other row shares, especially a value that looks
+  structurally different from the dominant set (different casing, different code
+  scheme, an out-of-range code like 0 among 1/2), is a candidate violation.</generic_signal>
+  <heuristic>Build the check from the data's own empirical majority pattern, not from a
+  document. Flag minority values as candidates; treat majority-uniform values (present
+  in 100% of rows, following one consistent format) as a design convention rather than a
+  defect - uniform oddities are far more often intentional generation/system conventions
+  than uniform defects, because a defect that hit every row would usually break
+  something downstream and get caught earlier. A defect signature looks like a *minority*
+  of rows disagreeing with the rest, not the whole column being unusual in the same way.</heuristic>
+  <check_template>{table}_{column}_domain_conformance</check_template>
+  <guardrail>If external documentation for the column is available, use it to confirm -
+  not to originate - the check. The check must still be derivable from the data alone,
+  since external docs won't exist for most tables the agent will ever see.</guardrail>
+</category>
+
+<category name="Format and Syntax Conformance">
+  <definition>A column that looks structured (fixed-width codes, ZIP/postal codes,
+  phone-shaped strings, ID-shaped strings) contains values that break the pattern the
+  rest of the column follows.</definition>
+  <generic_signal>Infer the expected pattern from the majority format actually observed
+  in the column (e.g. length, character class, punctuation placement) rather than from a
+  known format library - this keeps the check portable across countries/domains.</generic_signal>
+  <heuristic>Plan a check for any column with high format regularity (i.e., most values
+  match one shape) where a minority breaks that shape. Round/placeholder-looking breaks
+  (all-zero, all-nine) are especially high-signal.</heuristic>
+  <check_template>{table}_{column}_format_conformance</check_template>
+  <guardrail>Free-text columns with genuinely variable content are exempt - this
+  category only applies where the majority of values already share one shape.</guardrail>
+</category>
+
+<category name="Intra-Record Contradictions">
+  <definition>Two or more columns within the same row imply mutually inconsistent facts.
+  This is the most valuable and most commonly under-covered category because it can
+  never be found by looking at one column at a time.</definition>
+  <generic_signal>This category is driven entirely by the discovery protocol's
+  COMPANION GROUPS and ENTITY-DEPENDENT column maps - it should never require a human to
+  point at a specific pair.</generic_signal>
+  <heuristic>
+  For every companion group or ID→dependent-column mapping found in discovery, plan a
+  fill-correlation check with one of these expected shapes (choose based on what the
+  columns' roles imply, then verify against the data):
+    (a) co-presence: both populated or both null together (e.g. a foreign entity's ID
+        and that entity's descriptive fields should rise and fall together);
+    (b) mutual exclusivity: at most one of the group is populated per row;
+    (c) directional dependency: column B can only be populated if column A is (but not
+        vice versa).
+  Whichever shape the majority of rows follow, flag rows that break it. Do not assume
+  the "obvious" direction - verify by counting both directions in the actual data before
+  deciding which one is the violation, since the inverse of the expected pattern (as
+  with a "Secondary" status field populated only when there is no secondary entity) is
+  itself evidence of a defect, typically an upstream field-mapping bug.
+  </heuristic>
+  <check_template>{table}_{group_name}_fill_correlation; {table}_{id_column}_{dependent_column}_dependency</check_template>
+  <guardrail>Distinguish a genuine contradiction from a legitimate business state by
+  checking whether the "unexpected" pattern is consistent and total (every row with
+  condition X behaves the same way) rather than scattered - a consistent inverse
+  pattern across thousands of rows is a defect signature; a handful of scattered
+  exceptions may be genuine edge cases.</guardrail>
+</category>
+
+<category name="Temporal Consistency">
+  <definition>Multiple date/time columns in a row imply an order that is violated, or a
+  date falls outside a plausible window (future dates, pre-founding dates).</definition>
+  <generic_signal>Any two or more Temporal columns in the same companion group or
+  otherwise co-referenced by name (created/updated, start/end, requested/approved,
+  service/billed) imply a chronological sequence.</generic_signal>
+  <heuristic>Plan a pairwise ordering check for every temporal pair discovery surfaces,
+  plus a bounds check (no dates in the future relative to a load/reference date, no
+  dates before a plausible system/business start).</heuristic>
+  <check_template>{table}_{col_a}_{col_b}_chronology; {table}_{column}_future_date_check</check_template>
+  <guardrail>Confirm which column is expected to come first from the name semantics
+  before flagging - "updated" after "created" is expected; the reverse is the defect.</guardrail>
+</category>
+
+<category name="Statistical Plausibility and Magnitude Relationships">
+  <definition>A numeric value, or the relationship between two numeric columns, falls
+  outside what's statistically or logically plausible.</definition>
+  <generic_signal>Two signals, both derivable without domain knowledge: (a) single-column
+  outliers - values beyond N standard deviations or outside a plausible absolute range
+  (negative ages, negative counts); (b) MEASURE PAIRS surfaced by discovery - compute the
+  ratio of the two columns per row or in aggregate and check whether it clusters tightly
+  or is wildly dispersed. A part/whole or input/output pair with a 2x-100x+ spread across
+  otherwise-comparable rows is a signal worth surfacing even without knowing what the
+  columns "really" mean.</generic_signal>
+  <heuristic>Plan single-column outlier checks broadly. For measure pairs, plan a ratio-
+  distribution check and flag it as a hypothesis (see guardrail) rather than an asserted
+  defect, since the correct interpretation may depend on business context the agent
+  doesn't have.</heuristic>
+  <check_template>{table}_{column}_outlier_bounds; {table}_{measure_a}_{measure_b}_ratio_plausibility</check_template>
+  <guardrail>Ratio/magnitude findings should always be surfaced as a hypothesis for
+  human confirmation, per this KB's general semantic-anomaly guidance - the agent can
+  detect "this ratio is implausible" reliably; it cannot always determine "and here is
+  definitively why," since that depends on what the columns are meant to capture in this
+  specific pipeline.</guardrail>
+</category>
+
+<category name="Structural Degeneracy">
+  <definition>A column carries little or no information: fully empty, constant across
+  every row, or dominated by one value with a near-empty long tail.</definition>
+  <generic_signal>Compute distinct-value count and top-value frequency for every column
+  as part of the same sweep as Structural Completeness - this is cheap and should never
+  require a human to flag a specific column as "worth checking."</generic_signal>
+  <heuristic>Flag any column that is 100% one value (zero variance) or where the
+  frequency distribution has a category so rare (near-singleton) that any downstream
+  segmentation by it would be statistically unreliable. These are lower severity than
+  contradictions but should always be surfaced, since they silently break
+  aggregations/joins/models downstream.</heuristic>
+  <check_template>{table}_{column}_zero_variance; {table}_{column}_rare_category_flag</check_template>
+  <guardrail>Not every constant column is a defect (e.g. a single-region extract will
+  legitimately have one state value) - report as informational/low severity rather than
+  a hard violation, and let the human decide if it matters for their downstream use.</guardrail>
+</category>
+
+<category name="Root-Cause Clustering">
+  <definition>A meta-check, not a column-level check: multiple independently-planned
+  findings turn out to be one underlying defect expressed across several columns.</definition>
+  <generic_signal>After all other categories have produced their candidate checks,
+  compare the ROW-SETS each check would flag (not just the column names). High overlap
+  (the same rows keep recurring across otherwise-unrelated checks) is the signal.</generic_signal>
+  <heuristic>When two or more planned checks' violating row-sets are near-identical or
+  one is a strict subset of another, do not report them as N separate findings. Merge
+  them into a single finding with a shared-root-cause hypothesis (e.g. "one upstream
+  process populated four columns inconsistently for the same 1,929 rows" is one defect,
+  not four). This is what separates a report a human can act on from a report that just
+  lists symptoms.</heuristic>
+  <check_template>{table}_root_cause_cluster (references the constituent check_names it merges)</check_template>
+  <guardrail>Only merge when the overlap is structural (same exact rows, or one set
+  strictly containing another) - coincidental partial overlap between unrelated checks
+  should stay separate.</guardrail>
+</category>
+
+</knowledge_base>
+"""

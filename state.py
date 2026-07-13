@@ -1,16 +1,26 @@
 """
 Shared graph state.
 
-Metadata for every table is collected up front (see
-tools/database_tools.py) and stored as ColumnInfo/TableMetadata,
-BEFORE the agent loop ever starts - metadata_by_table is populated once
-into the initial state and never mutated afterward. This is what lets
-any tool (today: create_rule_plan; later: a cross-table check) reason
-about every table at once, since nothing is fetched turn-by-turn.
+Metadata for every table is collected up front, all at once (see
+tools/database_tools.py) - BUT the single-table agent itself runs ONCE
+PER TABLE (see orchestrator.run_single_table_detection), each time with
+a fresh DQState scoped to just that one table. `tables` and
+`metadata_by_table` will contain exactly one entry during a real run;
+the fields stay list/dict-shaped only so cross_table.py can eventually
+reuse this same TypedDict for a run that legitimately spans many tables
+at once.
 
-Checks are tracked as a flat list spanning every table, each with its
-OWN status and retry_count - a failing check for one table must not
-block or re-trigger checks for a different table that already passed.
+`dq_report` is the one field that is NOT reset per table: each table's
+initial state is seeded with whatever is already written to disk (via
+tools.report_tools.read_report_from_disk), so write_report always
+appends this table's rows to the running, cross-table total instead of
+overwriting it. This is what makes "one agent run per table" behave
+like one continuous report on disk.
+
+Checks (planned_checks/compiled_rules) are tracked as a flat list, but
+because each run is scoped to one table, that list only ever holds
+this table's checks - status/retry_count never need to be
+disambiguated across tables, since different tables never share state.
 
 related_table on PlannedCheck/CompiledRule is unused today (always
 None) - it exists now so that adding cross-table checks later is a
@@ -41,7 +51,7 @@ class TableMetadata(TypedDict):
     sample_rows: list[dict]
     columns: list[ColumnInfo]
     column_stats: list[ColumnStat]      # EVERY column, not just key candidates
-    candidate_keys: list[ColumnStat]    # subset of column_stats: 0 nulls, fully unique
+    candidate_keys: Optional[list[ColumnStat]]  # 0-null/fully-unique columns; None if no simple CK exists
     primary_key: list[str]              # 1 column (simple) or 2+ (composite)
     is_composite: bool
 
@@ -75,18 +85,26 @@ class DQState(AgentState):
     dq_report: list[dict]
 
 
-def initial_state_for_run(tables: list[str], metadata_by_table: dict[str, TableMetadata]) -> DQState:
-    """Build the single starting state for the WHOLE run. Called once
-    from main.py, after all tables' metadata has already been collected
-    deterministically - the agent never has to call a metadata tool
-    itself, it starts already knowing every table."""
+def initial_state_for_run(
+    tables: list[str],
+    metadata_by_table: dict[str, TableMetadata],
+    dq_report: Optional[list[dict]] = None,
+) -> DQState:
+    """Build the starting state for ONE agent run - in practice, one
+    run per table (see orchestrator.run_single_table_detection). The
+    metadata for `tables` has already been collected deterministically,
+    so the agent never has to call a metadata tool itself.
+
+    `dq_report` should be seeded with whatever is already on disk (see
+    tools.report_tools.read_report_from_disk) so write_report appends
+    to the running total across tables instead of starting over."""
     return DQState(
         messages=[{
             "role": "user",
             "content": (
                 f"Run the data quality pipeline for {len(tables)} table(s): "
-                f"{tables}. Metadata for every table has already been "
-                f"collected and is available to you."
+                f"{tables}. Metadata for {'this table' if len(tables) == 1 else 'these tables'} "
+                f"has already been collected and is available to you."
             ),
         }],
         tables=tables,
@@ -94,5 +112,5 @@ def initial_state_for_run(tables: list[str], metadata_by_table: dict[str, TableM
         planned_checks=[],
         compiled_rules=[],
         execution_results=[],
-        dq_report=[],
+        dq_report=dq_report or [],
     )

@@ -16,7 +16,7 @@ Key-finding logic (Option B - no combinatorial search):
    silently break every check planned against this table.
 """
 
-from typing import TypedDict
+from typing import Optional, TypedDict
 
 from config import get_llm
 from state import ColumnStat, ColumnInfo, TableMetadata
@@ -130,11 +130,12 @@ def build_table_metadata(table_name: str) -> TableMetadata:
     sample_rows = get_sample_rows(table_name)
     column_stats_raw = get_column_stats(table_name)   # every column
 
-    candidate_keys: list[ColumnStat] = [
+    _found_candidate_keys: list[ColumnStat] = [
         {"column": c["column"], "null_count": c["null_count"], "distinct_count": c["distinct_count"]}
         for c in column_stats_raw
         if c["null_count"] == 0 and c["distinct_count"] == row_count
     ]
+    candidate_keys: Optional[list[ColumnStat]] = _found_candidate_keys or None
 
     if candidate_keys:
         stat_derived_candidates = [c["column"] for c in candidate_keys]
