@@ -29,7 +29,7 @@ gemini_model = init_chat_model(
     "gemini-3.1-flash-lite",
     model_provider="google_genai",
     temperature=0,
-    max_tokens=2000,
+    #max_tokens=2000,
     rate_limiter=rate_limiter,
     max_retries=6,   
 )
@@ -37,7 +37,7 @@ open_router_model = init_chat_model(
     "nvidia/nemotron-3-super-120b-a12b:free",
     model_provider="openrouter",
     temperature=0,
-    max_tokens=2000,
+    #max_tokens=2000,
     rate_limiter=rate_limiter,
     max_retries=6,   
 )
@@ -45,6 +45,10 @@ open_router_model = init_chat_model(
 
 def get_llm()->BaseChatModel:
     return gemini_model
+
+
+def get_nvidia_llm()->BaseChatModel:
+    return open_router_model
 
 
 # Maximum number of times SQL Generator may be asked to fix failing SQL for a single table before the orchestrator gives up on that table.

@@ -16,7 +16,7 @@ from langchain_core.messages import ToolMessage
 from langchain.tools import tool, ToolRuntime
 from langgraph.types import Command
 
-from config import get_llm
+from config import get_llm, get_nvidia_llm
 from state import DQState, PlannedCheck
 from utils.helpers import read_knowledge_base
 
@@ -65,8 +65,6 @@ def _plan_checks(metadata_by_table: dict, knowledge_base: str) -> list[PlannedCh
             f"Metadata for all tables:\n{metadata_by_table}\n"
         )},
     ])
-    # related_table isn't asked of the LLM yet - filled in as None here
-    # so every check already matches the full PlannedCheck schema.
     return [{**c, "related_table": None} for c in result["checks"]]
 
 

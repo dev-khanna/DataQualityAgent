@@ -86,23 +86,40 @@ def generate_sql(runtime: ToolRuntime[None, DQState]) -> Command:
 
     if not compiled_rules:
         sql_by_name = _generate(metadata_by_table, planned_checks)
-        new_rules: list[CompiledRule] = [
-            {
-                "check_name": name,
-                "table": planned_by_name[name]["table"],
-                "related_table": planned_by_name[name]["related_table"],
-                "column": planned_by_name[name]["column"],
-                "sql": sql,
-                "status": "pending_validation",
-                "validation_error": None,
-                "retry_count": 0,
-            }
-            for name, sql in sql_by_name.items() if name in planned_by_name
-        ]
+        new_rules: list[CompiledRule] = []
+        for name, planned in planned_by_name.items():
+            if name in sql_by_name:
+                new_rules.append({
+                    "check_name": name,
+                    "table": planned["table"],
+                    "related_table": planned["related_table"],
+                    "column": planned["column"],
+                    "sql": sql_by_name[name],
+                    "status": "pending_validation",
+                    "validation_error": None,
+                    "retry_count": 0,
+                })
+            else:
+                new_rules.append({
+                    "check_name": name,
+                    "table": planned["table"],
+                    "related_table": planned["related_table"],
+                    "column": planned["column"],
+                    "sql": "",
+                    "status": "invalid",
+                    "validation_error": "generator returned no SQL for this check",
+                    "retry_count": 0,
+                })
+
+        missing = sorted(set(planned_by_name) - set(sql_by_name))
         return Command(update={
             "compiled_rules": new_rules,
             "messages": [ToolMessage(
-                content=f"Generated SQL for {len(new_rules)} check(s). Call validate_sql next.",
+                content=(
+                    f"Generated SQL for {len(sql_by_name)}/{len(planned_by_name)} check(s)."
+                    + (f" No SQL returned for {missing} - marked invalid for retry." if missing else "")
+                    + " Call validate_sql next."
+                ),
                 tool_call_id=runtime.tool_call_id,
             )],
         })
@@ -130,13 +147,19 @@ def generate_sql(runtime: ToolRuntime[None, DQState]) -> Command:
     fixable_names = {r["check_name"] for r in fixable}
     updated_rules = []
     for r in compiled_rules:
-        if r["check_name"] in fixable_names and r["check_name"] in fixed_sql:
+        if r["check_name"] not in fixable_names:
+            updated_rules.append(r)
+        elif r["check_name"] in fixed_sql:
             updated_rules.append({
                 **r, "sql": fixed_sql[r["check_name"]], "status": "pending_validation",
                 "validation_error": None, "retry_count": r["retry_count"] + 1,
             })
         else:
-            updated_rules.append(r)
+            updated_rules.append({
+                **r, "status": "invalid",
+                "validation_error": "generator returned no SQL for this check",
+                "retry_count": r["retry_count"] + 1,
+            })
 
     return Command(update={
         "compiled_rules": updated_rules,
