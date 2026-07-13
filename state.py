@@ -57,11 +57,14 @@ class TableMetadata(TypedDict):
 
 
 class PlannedCheck(TypedDict):
-    check_name: str                 # must be globally unique across ALL tables
+    check_name: str
     check_type: str
-    table: str                      # table this check belongs to
-    related_table: Optional[str]    # unused for now - reserved for future cross-table checks
+    table: str
+    related_table: Optional[str]
     column: str
+    rationale: str
+    confidence: Literal["asserted", "hypothesis"]
+    correlation_group: Optional[str]
     description: str
 
 

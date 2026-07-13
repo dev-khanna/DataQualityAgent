@@ -28,6 +28,10 @@ from utils.database import load_tables
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    if REPORT_PATH.exists():
+        REPORT_PATH.unlink()
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     tables = load_tables(DATA_DIR)
     if not tables:
         raise SystemExit(f"No CSV files found in {DATA_DIR}")

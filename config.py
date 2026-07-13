@@ -19,35 +19,36 @@ KNOWLEDGE_BASE_PATH = BASE_DIR / "knowledge_base" / "dq_checks.md"
 REPORT_PATH = OUTPUT_DIR / "dq_report.csv"
 
 rate_limiter = InMemoryRateLimiter(
-    requests_per_second=0.15,   
+    requests_per_second=0.15,
     check_every_n_seconds=0.1,
     max_bucket_size=1,
 )
 
-#defining models
+# defining models
 gemini_model = init_chat_model(
     "gemini-3.1-flash-lite",
     model_provider="google_genai",
-    temperature=0,
-    #max_tokens=2000,
+    temperature=1,         
+    max_tokens=32000,      
+    thinking_level="high", 
     rate_limiter=rate_limiter,
-    max_retries=6,   
+    max_retries=6,
 )
 open_router_model = init_chat_model(
     "nvidia/nemotron-3-super-120b-a12b:free",
     model_provider="openrouter",
     temperature=0,
-    #max_tokens=2000,
+    max_tokens=5000,
     rate_limiter=rate_limiter,
-    max_retries=6,   
+    max_retries=6,
 )
 
 
-def get_llm()->BaseChatModel:
+def get_llm() -> BaseChatModel:
     return gemini_model
 
 
-def get_nvidia_llm()->BaseChatModel:
+def get_nvidia_llm() -> BaseChatModel:
     return open_router_model
 
 
