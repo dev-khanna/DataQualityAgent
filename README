@@ -1,0 +1,35 @@
+Directory structure:
+
+└── dev-khanna-dataqualityagent/
+    ├── README
+    ├── config.py
+    ├── main.py
+    ├── orchestrator.py
+    ├── state.py
+    ├── knowledge_base/
+    │   └── dq_checks.md
+    ├── tools/
+    │   ├── __init__.py
+    │   ├── database_tools.py
+    │   ├── report_tools.py
+    │   ├── rule_tools.py
+    │   └── sql_tools.py
+    └── utils/
+        ├── database.py
+        └── helpers.py
+
+Control Flow:
+
+main.py
+└─ for each table:
+   └─ orchestrator.py (LangGraph agent loop, via create_agent)
+      └─ repeatedly calls ONE of six tools, reads result, decides next:
+         1. extract_database_metadata   (tools/database_tools.py)
+         2. create_rule_plan            (tools/rule_tools.py)
+         3. generate_sql                (tools/sql_tools.py)
+         4. validate_sql                (tools/sql_tools.py)
+         5. execute_sql                 (tools/sql_tools.py)
+         6. write_report                (tools/report_tools.py)
+      └─ ends when the orchestrator replies with plain text
+         instead of calling another tool
+└─ main.py re-reads the report from disk before starting the next table
