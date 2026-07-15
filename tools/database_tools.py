@@ -23,6 +23,7 @@ from state import ColumnStat, ColumnInfo, TableMetadata
 from utils.database import (
     get_column_stats,
     get_combo_distinct_count,
+    get_numeric_distribution_stats,
     get_row_count,
     get_sample_rows,
     get_schema,
@@ -129,6 +130,7 @@ def build_table_metadata(table_name: str) -> TableMetadata:
     row_count = get_row_count(table_name)
     sample_rows = get_sample_rows(table_name)
     column_stats_raw = get_column_stats(table_name)   # every column
+    numeric_stats = get_numeric_distribution_stats(table_name, schema)
 
     _found_candidate_keys: list[ColumnStat] = [
         {"column": c["column"], "null_count": c["null_count"], "distinct_count": c["distinct_count"]}
@@ -163,6 +165,7 @@ def build_table_metadata(table_name: str) -> TableMetadata:
         sample_rows=sample_rows,
         columns=columns,
         column_stats=column_stats,
+        numeric_stats=numeric_stats,
         candidate_keys=candidate_keys,
         primary_key=primary_key,
         is_composite=is_composite,

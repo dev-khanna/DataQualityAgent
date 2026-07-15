@@ -101,3 +101,66 @@ def run_query(sql: str, sample_limit: int = 5) -> dict:
         f"SELECT COUNT(*) FROM ({sql.rstrip(';')}) AS _sub"
     ).fetchone()[0]
     return {"columns": columns, "sample_rows": sample_rows, "row_count": row_count}
+
+_NUMERIC_TYPE_PREFIXES = (
+    "TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT",
+    "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT", "UHUGEINT",
+    "FLOAT", "DOUBLE", "DECIMAL", "REAL",
+)
+
+
+def _is_numeric_type(sql_type: str) -> bool:
+    return sql_type.upper().startswith(_NUMERIC_TYPE_PREFIXES)
+
+
+def get_numeric_distribution_stats(table_name: str, schema: list[dict]) -> list[dict]:
+    """Deterministic IQR-based distribution bounds for every numeric
+    column: min, max, Q1, median, Q3, and the standard Tukey fence
+    (Q1 - 1.5*IQR, Q3 + 1.5*IQR). This is the one thing the LLM should
+    never be guessing at - magnitude/outlier checks (e.g. "expenses
+    shouldn't be more than Nx coverage") should reference these real
+    bounds instead of an invented multiplier.
+
+    Takes `schema` as a parameter, unlike get_column_stats (which
+    re-fetches it internally) - purely to avoid a redundant DESCRIBE
+    round-trip, since every caller already has it computed. Minor,
+    deliberate deviation from the existing per-function pattern.
+
+    DECIMAL-typed columns come back from DuckDB as Python Decimal, not
+    float - mixing Decimal and float in arithmetic raises TypeError
+    (confirmed by hand), so every value is cast to float immediately
+    after fetchone(), before any arithmetic happens. Skips non-numeric
+    columns and numeric columns that are 100% null (q1/q3 come back
+    NULL in that case - nothing to compute).
+    """
+    con = get_connection()
+    stats = []
+    for col in schema:
+        name, sql_type = col["column"], col["type"]
+        if not _is_numeric_type(sql_type):
+            continue
+        row = con.execute(f'''
+            SELECT
+                MIN("{name}"),
+                MAX("{name}"),
+                PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY "{name}"),
+                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "{name}"),
+                PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY "{name}")
+            FROM "{table_name}"
+            WHERE "{name}" IS NOT NULL
+        ''').fetchone()
+        if row[2] is None or row[3] is None:   # all-null numeric column
+            continue
+        col_min, col_max, q1, median, q3 = (float(v) for v in row)
+        iqr = q3 - q1
+        stats.append({
+            "column": name,
+            "min": col_min,
+            "max": col_max,
+            "q1": q1,
+            "median": median,
+            "q3": q3,
+            "iqr_lower_bound": q1 - 1.5 * iqr,
+            "iqr_upper_bound": q3 + 1.5 * iqr,
+        })
+    return stats

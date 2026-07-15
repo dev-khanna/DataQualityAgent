@@ -54,6 +54,8 @@ class TableMetadata(TypedDict):
     candidate_keys: Optional[list[ColumnStat]]  # 0-null/fully-unique columns; None if no simple CK exists
     primary_key: list[str]              # 1 column (simple) or 2+ (composite)
     is_composite: bool
+    column_stats: list[ColumnStat]      # EVERY column, not just key candidates
+    numeric_stats: list[NumericStat]    # IQR bounds for numeric columns only; [] if none
 
 
 class PlannedCheck(TypedDict):
@@ -63,6 +65,7 @@ class PlannedCheck(TypedDict):
     related_table: Optional[str]
     column: str
     rationale: str
+    why_not_convention: str
     confidence: Literal["asserted", "hypothesis"]
     correlation_group: Optional[str]
     description: str
@@ -73,6 +76,9 @@ class CompiledRule(TypedDict):
     table: str
     related_table: Optional[str]
     column: str
+    rationale: str
+    why_not_convention: str
+    confidence: Literal["asserted", "hypothesis"]
     sql: str
     status: Literal["pending_validation", "valid", "invalid"]
     validation_error: Optional[str]
@@ -117,3 +123,19 @@ def initial_state_for_run(
         execution_results=[],
         dq_report=dq_report or [],
     )
+
+
+class NumericStat(TypedDict):
+    """Deterministic distribution stats for one numeric column - min/max/
+    quartiles plus Tukey IQR bounds. Grounds magnitude/outlier checks in
+    the column's actual distribution instead of an LLM-invented
+    multiplier. Only present for numeric columns with at least one
+    non-null value; every other column simply has no entry here."""
+    column: str
+    min: float
+    max: float
+    q1: float
+    median: float
+    q3: float
+    iqr_lower_bound: float
+    iqr_upper_bound: float
