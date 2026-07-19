@@ -13,8 +13,6 @@ from llm import gemini_model
 from prompts import TABLE_DQ_SYSTEM_PROMPT
 from tools.table_dq_tools import (
     extract_all_metadata,
-    infer_composite_pk,
-    infer_simple_pk,
     create_rule_plan,
     generate_sql,
     validate_sql,
@@ -24,8 +22,6 @@ from tools.table_dq_tools import (
 
 tools = [
     extract_all_metadata,
-    infer_composite_pk,
-    infer_simple_pk,
     create_rule_plan,
     generate_sql,
     validate_sql,
