@@ -1,22 +1,3 @@
 Directory structure:
 
-└── dev-khanna-dataqualityagent/
-    ├── README
-    ├── config.py
-    ├── main.py
-    ├── orchestrator.py
-    ├── state.py
-    ├── cross_table.py
-    ├── knowledge_base/
-    │   └── dq_checks.md
-    ├── tools/
-    │   ├── __init__.py
-    │   ├── database_tools.py
-    │   ├── report_tools.py
-    │   ├── rule_tools.py
-    │   └── sql_tools.py
-    └── utils/
-        ├── database.py
-        └── helpers.py
-
 Control Flow:

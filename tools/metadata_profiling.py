@@ -53,7 +53,6 @@ def get_column_profile_stats(
                 "distinct_ratio": round(distinct_ratio, 4),
             }
         )
-        
     return stats
 
 

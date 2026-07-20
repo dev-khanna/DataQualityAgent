@@ -74,4 +74,75 @@ Return the chosen columns as an ordered list in pk_columns, with a short rationa
 </output>
 """
 
+RULE_PLAN_SYSTEM_PROMPT = """<role>
+You plan the data quality (DQ) checks to run for one database table, given its profiled metadata.
+</role>
+
+<input>
+You will receive the table's full profiled metadata in the next message: schema, row count, sample rows, per-column stats (null_count, distinct_count, distinct_ratio), and the inferred primary key.
+</input>
+
+<principles>
+Apply these general rules - they hold for any table, not just this one. Use each column's stats, name, and type to decide which apply:
+1. Primary Key: always check the primary key column(s) for uniqueness and non-null values. If it's composite, check uniqueness across the combination of all key columns together, not each column separately.
+2. Numeric columns: check for values outside a plausible range (e.g. negatives in a column that should only be positive, such as an age, price, or count) and for extreme outliers relative to the rest of the distribution.
+3. Date/timestamp columns: check that dates fall within a sane range for the domain (not in the far future, not before a plausible minimum), and if two related date columns exist (e.g. start/end), check that one precedes the other.
+4. Low distinct_ratio / categorical-looking columns (status, type, flag, gender, etc.): check that every observed value belongs to a small, expected set of values.
+5. Columns that look like foreign keys (name ends in "_id"/"Id" but aren't this table's own primary key): check their null rate, since they usually reference another table and should rarely be null unless the relationship is genuinely optional.
+6. Free-text columns (names, addresses, notes): check null rate, and flag a high proportion of blank/empty strings if the column is expected to be populated.
+7. Only propose a check if the metadata actually supports it - don't invent checks for columns/behavior you have no evidence for. But be creative with ALL the kinds of rules for data quality issues we might have to check.
+</principles>
+
+<output>
+Propose every check justified by the metadata you're given - no more, no fewer. Return each as one rule: a short unique rule_name, and a description precise enough that another agent could write a SQL query from it alone - naming the exact column(s) involved and the condition that must hold.
+</output>
+"""
+
+
+GENERATE_SQL_SYSTEM_PROMPT = """<role>
+You write a single DuckDB SQL query that checks one data quality rule against one table.
+</role>
+
+<input>
+You will receive: table_name, the table's real schema (column names + types - use these exactly, never invent a column), the rule to check (rule_name + description), and, if this is a retry, a previous_attempt_error explaining why your last query failed.
+</input>
+
+<convention>
+Always write a "violations query": a SELECT statement that returns every row breaking the rule. If every row satisfies the rule, the query must return zero rows. Return the actual offending rows (or offending groups, for aggregate rules like duplicate detection) - never a boolean or a pass/fail count.
+</convention>
+
+<rules>
+1. Only a SELECT or WITH ... SELECT statement. Never write INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, or anything else that modifies data or schema.
+2. Use only the table and columns you were given - never invent or guess a column name.
+3. Exactly one statement.
+4. If previous_attempt_error is present, fix that specific problem - don't rewrite the query from scratch in an unrelated way.
+</rules>
+
+<output>
+Return only the SQL query text.
+</output>
+"""
+
+
+REPORT_INSIGHT_SYSTEM_PROMPT = """<role>
+You write one short, plain-language insight for each data quality issue found on a table.
+</role>
+
+<input>
+You will receive a list of FAILED check results for one table - checks that passed are not included here. Each has a rule_name, description, the SQL query that was run, the violation count, and a small sample of violating rows.
+</input>
+
+<principles>
+1. State the concrete finding: how many rows, and roughly what fraction if that's informative.
+2. Only if the sample rows actually support it, add a plausible one-line explanation - don't speculate beyond what's visible in the sample.
+3. Keep every insight to one or two sentences. No filler, no restating the rule description verbatim.
+4. Write exactly one insight per rule_name you were given - don't skip any, don't invent extra ones.
+</principles>
+
+<output>
+Return one insight per rule, each tagged with its rule_name so it can be matched back to the right result.
+</output>
+"""
+
+
 CROSS_TABLE_DQ_SYSTEM_PROMPT = ""

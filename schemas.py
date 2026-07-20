@@ -21,3 +21,41 @@ class PKInferenceResult(BaseModel):
     rationale: str = Field(
         description="Short explanation of why these column(s) were chosen as the primary key."
     )
+
+
+class DQRule(BaseModel):
+    """One data quality check."""
+
+    rule_name: str = Field(description="Short, unique name for this check.")
+    description: str = Field(
+        description="What the check verifies and which column(s) it applies to, precise "
+        "enough that a SQL-writing step could act on it directly."
+    )
+
+
+class RulePlan(BaseModel):
+    """Structured output for create_rule_plan."""
+
+    rules: List[DQRule] = Field(description="Every data quality check to run for this table.")
+
+
+class GeneratedSQL(BaseModel):
+    """Structured output for generate_sql."""
+
+    sql: str = Field(
+        description="A SELECT (or WITH ... SELECT) statement that returns every row "
+        "violating the rule. Must return zero rows if the table fully satisfies the rule."
+    )
+
+
+class RuleInsight(BaseModel):
+    """One rule's plain-language takeaway, for write_report."""
+
+    rule_name: str = Field(description="Which rule this insight is for - must match a rule_name you were given.")
+    insight: str = Field(description="A one to two sentence, plain-language takeaway from that rule's result.")
+
+
+class ReportInsights(BaseModel):
+    """Structured output for the batched insight-generation call."""
+
+    insights: List[RuleInsight] = Field(description="One insight per rule result you were given.")

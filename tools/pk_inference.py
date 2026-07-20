@@ -17,7 +17,7 @@ from schemas import PKInferenceResult
 
 
 def _invoke_pk_inference(system_prompt: str, metadata: dict) -> PKInferenceResult:
-    structured_model=gemini_model.with_structured_output(PKInferenceResult)
+    structured_model = gemini_model.with_structured_output(PKInferenceResult)
     messages = [
         SystemMessage(content=system_prompt),
         HumanMessage(content=json.dumps(metadata, default=str)),
@@ -26,10 +26,12 @@ def _invoke_pk_inference(system_prompt: str, metadata: dict) -> PKInferenceResul
 
 
 def infer_simple_pk(metadata: dict) -> PKInferenceResult:
-    """Chooses the best single-column Primary Key out of metadata's candidate_keys."""
+    """Chooses the best single-column Primary Key out of metadata's
+    candidate_keys."""
     return _invoke_pk_inference(SIMPLE_PK_SYSTEM_PROMPT, metadata)
 
 
 def infer_composite_pk(metadata: dict) -> PKInferenceResult:
-    """Proposes a composite (multi-column) Primary Key for tables where no single column is unique on its own."""
+    """Proposes a composite (multi-column) Primary Key for tables where
+    no single column is unique on its own."""
     return _invoke_pk_inference(COMPOSITE_PK_SYSTEM_PROMPT, metadata)
