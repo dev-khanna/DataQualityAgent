@@ -1,12 +1,10 @@
-# tools/table_dq_tools.py — full file replacement
-
 """
 tools/table_dq_tools.py
 
 Tools exposed to the single-table DQ orchestrator agent.
 
 Metadata and per-rule results are cached server-side, keyed by table_name,
-in _metadata_cache and _results_cache. This avoids ever having the LLM
+in _metadata_hash and _result_hash. This avoids ever having the LLM
 re-generate large payloads (full schema/sample rows, full violation
 samples) as tool-call arguments just to relay data it already produced -
 previously this duplicated the largest blobs in the conversation and was
@@ -39,11 +37,11 @@ import config
 
 # table_name -> full extract_all_metadata output (schema, sample_rows,
 # column_stats, candidate_keys, near_candidate_keys, primary_key, ...)
-_metadata_cache: dict[str, dict] = {}
+_metadata_hash: dict[str, dict] = {}
 
 # table_name -> list of full execute_sql_query outputs (including
 # sample_violations) collected so far for that table
-_results_cache: dict[str, list[dict]] = {}
+_result_hash: dict[str, list[dict]] = {}
 
 
 @tool
@@ -102,7 +100,7 @@ def extract_all_metadata(table_name: str) -> dict:
         "pk_rationale": pk_result.rationale,
         "pk_inference_method": pk_inference_method,
     }
-    _metadata_cache[table_name] = full_metadata
+    _metadata_hash[table_name] = full_metadata
 
     return {
         "table_name": table_name,
@@ -130,7 +128,7 @@ def create_rule_plan(table_name: str) -> dict:
         The proposed rules (rule_name + description for each) - use these
         to populate your Todo List.
     """
-    metadata = _metadata_cache[table_name]
+    metadata = _metadata_hash[table_name]
     rule_plan = generate_rule_plan(metadata)
     return rule_plan.model_dump()
 
@@ -194,7 +192,7 @@ def execute_sql(table_name: str, sql: str, rule_name: str, description: str = No
     """
     result = execute_sql_query(table_name, sql, rule_name)
     result["description"] = description
-    _results_cache.setdefault(table_name, []).append(result)
+    _result_hash.setdefault(table_name, []).append(result)
     return {
         "rule_name": result["rule_name"],
         "passed": result["passed"],
@@ -214,15 +212,14 @@ def write_report(table_name: str) -> dict:
     whole table), then appends one row per issue with exactly 4 columns:
     rule, query, output, insight. Call this once, after every rule on this
     table's Todo List has been executed. Clears this table's cached
-    metadata and results afterward.
+    results afterward.
 
     Args:
         table_name: Name of the table whose cached results (from every
             execute_sql call made in this run) should be reported and
             cleared.
     """
-    results = _results_cache.pop(table_name, [])
-    _metadata_cache.pop(table_name, None)
+    results = _result_hash.pop(table_name, [])
 
     failed_results = [r for r in results if not r.get("passed")]
     insights = generate_insights(failed_results)

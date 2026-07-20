@@ -6,7 +6,6 @@ Runs once per table, per the workflow described in TABLE_DQ_SYSTEM_PROMPT.
 """
 
 from langchain.agents import create_agent
-from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents.middleware import TodoListMiddleware
 
 from llm import gemini_model
@@ -33,5 +32,5 @@ table_dq_agent = create_agent(
     model=gemini_model,
     tools=tools,
     system_prompt=TABLE_DQ_SYSTEM_PROMPT,
-    middleware=[FilesystemMiddleware(), TodoListMiddleware()],
+    middleware=[TodoListMiddleware()],
 )
