@@ -14,6 +14,7 @@ from db import load_tables
 from agents.table_dq_agent import table_dq_agent
 from agents.cross_table_dq_agent import cross_table_dq_agent
 from langchain.messages import HumanMessage
+from tools.report_writer import reset_report
 
 
 def run_table_dq_checks(table_names: list[str]) -> None:
@@ -34,6 +35,7 @@ def run_cross_table_dq_checks() -> None:
 
 
 if __name__ == "__main__":
+    reset_report()
     table_names = load_tables(DATA_DIR)
     run_table_dq_checks(table_names)
     run_cross_table_dq_checks()

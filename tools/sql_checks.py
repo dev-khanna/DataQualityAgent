@@ -37,17 +37,19 @@ def _read_only_check(sql: str) -> str | None:
 
 
 def validate_sql_query(sql: str) -> dict:
-    """Checks that sql is safe (read-only, single statement) and
-    syntactically valid against the live DuckDB catalog - without
-    executing it. Uses EXPLAIN, which plans the query (catching bad
-    table/column references and syntax errors) without running it."""
+    """Checks that sql is safe (read-only, single statement) and valid
+    against the live DuckDB catalog *and* data. Actually executes the
+    query (safe — already confirmed read-only above) rather than just
+    planning it with EXPLAIN, since EXPLAIN alone won't catch
+    data-dependent runtime errors like CAST failures on malformed
+    values (e.g. currency-formatted strings)."""
     read_only_error = _read_only_check(sql)
     if read_only_error:
         return {"is_valid": False, "errors": [read_only_error], "sql": sql}
 
     con = get_connection()
     try:
-        con.execute(f"EXPLAIN {sql.strip().rstrip(';')}")
+        con.execute(sql.strip().rstrip(";"))
     except Exception as e:
         return {"is_valid": False, "errors": [str(e)], "sql": sql}
 
@@ -55,12 +57,24 @@ def validate_sql_query(sql: str) -> dict:
 
 
 def execute_sql_query(table_name: str, sql: str, rule_name: str, sample_limit: int = 5) -> dict:
-    """Runs an already-validated violations query and reports whether the
-    rule passed. passed = True iff the query returned zero rows."""
+    """Runs an already-validated violations query. Never raises: if
+    execution fails anyway, the failure is returned as part of the
+    result instead of crashing the run."""
     con = get_connection()
-    result = con.execute(sql.strip().rstrip(";"))
-    columns = [desc[0] for desc in result.description]
-    rows = result.fetchall()
+    try:
+        result = con.execute(sql.strip().rstrip(";"))
+        columns = [desc[0] for desc in result.description]
+        rows = result.fetchall()
+    except Exception as e:
+        return {
+            "rule_name": rule_name,
+            "table_name": table_name,
+            "sql": sql,
+            "passed": False,
+            "violation_count": None,
+            "sample_violations": [],
+            "error": str(e),
+        }
 
     return {
         "rule_name": rule_name,

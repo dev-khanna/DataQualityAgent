@@ -24,9 +24,13 @@ def get_row_count(table_name: str) -> int:
     return con.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
 
 
-def get_sample_rows(table_name: str, limit: int = 5) -> list[dict[str, Any]]:
+def get_sample_rows(table_name: str, limit: int = None) -> list[dict[str, Any]]:
+    import config
+    limit = limit or config.SAMPLE_ROWS_LIMIT
     con = get_connection()
-    result = con.execute(f'SELECT * FROM "{table_name}" LIMIT {limit}')
+    result = con.execute(
+        f'SELECT * FROM "{table_name}" USING SAMPLE {limit} ROWS (reservoir)'
+    )
     columns = [desc[0] for desc in result.description]
     return [dict(zip(columns, row)) for row in result.fetchall()]
 
@@ -65,4 +69,20 @@ def get_candidate_keys(column_stats: list[dict[str, Any]], row_count: int) -> li
         stat["column_name"]
         for stat in column_stats
         if stat["null_count"] == 0 and stat["distinct_count"] == row_count
+    ]
+
+
+def get_near_candidate_keys(column_stats: list[dict[str, Any]], row_count: int) -> list[str]:
+    """Columns that look like they were meant to be unique identifiers
+    (no nulls, high distinct_ratio) but fall short of it in the actual
+    data. The shortfall is usually itself the DQ issue - not proof the
+    column is the wrong PK choice."""
+    import config
+    if row_count == 0:
+        return []
+    return [
+        stat["column_name"]
+        for stat in column_stats
+        if stat["null_count"] == 0
+        and config.NEAR_CANDIDATE_KEY_THRESHOLD <= stat["distinct_ratio"] < 1.0
     ]

@@ -25,8 +25,19 @@ def _format_rule(result: dict) -> str:
 def _format_output(result: dict) -> str:
     if result.get("passed"):
         return "PASSED - 0 violations"
+    if result.get("error"):
+        return f"ERROR - query failed during execution: {result['error']}"
     sample = json.dumps(result.get("sample_violations", []), default=str)
     return f"FAILED - {result.get('violation_count', 0)} violation(s); sample: {sample}"
+
+
+def reset_report() -> None:
+    """Deletes any existing report file so a fresh pipeline run starts
+    blank. Call exactly once, at the very start of the overall run in
+    main.py — never per-table, since later tables are meant to append
+    to earlier tables' results within the same run."""
+    if config.REPORT_PATH.exists():
+        config.REPORT_PATH.unlink()
 
 
 def append_report_rows(results: list[dict], insights: dict[str, str]) -> int:
