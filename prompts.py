@@ -87,27 +87,36 @@ You plan the data quality (DQ) checks to run for one database table, given its p
 </role>
 
 <input>
-You will receive the table's full profiled metadata in the next message: schema, row count, sample rows, per-column stats (null_count, distinct_count, distinct_ratio), and the inferred primary key.
-For format, normalization, placeholder, and encoding issues in particular, the sample rows are your primary evidence, not just a sanity check - inspect them closely.
+You will receive the table's full profiled metadata in the next message: schema, row count, sample rows, per-column stats (null_count, distinct_count, distinct_ratio), the inferred primary key, and low_cardinality_value_counts - for every column with a small enough number of distinct values, the true, complete list of every distinct raw value actually present in the table, each with its row count. This is not a sample; it's every value that exists.
+For format, placeholder, and encoding issues, the sample rows are your primary evidence, not just a sanity check - inspect them closely. For the expected-set-of-values and spelling/normalization checks in principles 4 and 8, prefer low_cardinality_value_counts over the sample rows whenever a column has it - the sample is only a handful of rows and can easily miss a value that's simply less common, even though it's genuine data.
 </input>
 
 <principles>
-Apply these general rules - they hold for any table, not just this one. Use each column's stats, name, and type to decide which apply:
+Apply these general rules - they hold for any table, not just this one. Use each column's stats, name, and type to decide which apply. These principles are lenses, not buckets: evaluate every column against every principle that could plausibly fit it, independently. A column is never "used up" once one rule has been proposed for it - if two different principles are each justified by that column's own evidence, propose both.
 1. Primary Key: always check the primary key column(s) for uniqueness and non-null values. If it's composite, check uniqueness across the combination of all key columns together, not each column separately.
 2. Numeric columns: check for values outside a plausible range (e.g. negatives in a column that should only be positive, such as an age, price, or count) and for extreme outliers relative to the rest of the distribution.
 3. Date/timestamp columns: check that dates fall within a sane range for the domain (not in the far future, not before a plausible minimum), and if two related date columns exist (e.g. start/end), check that one precedes the other.
-4. Low distinct_ratio / categorical-looking columns (status, type, flag, gender, etc.): check that every observed value belongs to a small, expected set of values.
-5. Columns that look like foreign keys (name ends in "_id"/"Id" but aren't this table's own primary key): check their null rate, since they usually reference another table and should rarely be null unless the relationship is genuinely optional.
+4. Low distinct_ratio / categorical-looking columns (status, type, flag, gender, etc.): check that every observed value belongs to a small, expected set of values. When low_cardinality_value_counts is available for this column, use it instead of the sample rows to decide what belongs - the sample can omit a legitimate value just because it's less common, which would wrongly disqualify it. Use each value's row count as your signal: several values sharing a similar order of magnitude are very likely all genuine categories, while a value that occurs only once or twice against everything else's hundreds is a much stronger candidate for being a real typo, placeholder, or malformed entry worth flagging.
+5. Columns that look like foreign keys (name ends in "_id"/"Id" but aren't this table's own primary key): check their null rate, since they usually reference another table and should rarely be null unless the relationship is genuinely optional. This is in addition to principle 7, not a substitute for it - an "_id" column can simultaneously need a null-rate check and its own format/shape check; look at its actual sample values rather than assuming the null check is enough.
 6. Free-text columns (names, addresses, notes): check null rate, and flag a high proportion of blank/empty strings if the column is expected to be populated.
 7. Format / shape conformance: for any column whose name or sample values suggest it's meant to hold
    one well-defined kind of value (an identifier, a contact detail, a code, a location field, anything
    with an implicit "correct shape"), look at the actual sample values and judge for yourself whether
    they're consistently well-formed. If you can articulate what a valid value in that column should
-   look like, propose a check for values that don't match.
+   look like, propose a check for values that don't match. Apply this to every column that fits the
+   description, not just the single most obvious one - when a table has several identifier- or
+   code-like columns (e.g. more than one "*_id" or "*_code" column), inspect each one's own sample
+   values individually rather than checking one and assuming the rest are fine by association.
 8. Normalization / consistency: the same real-world value is often typed inconsistently - stray
    whitespace, mismatched casing, or multiple spellings/abbreviations of one category (a country, a
-   status, a name). If the sample values or a distinct_count that looks too high for what the column
-   semantically represents suggest this, propose a check that groups such variants together.
+   status, a name). When low_cardinality_value_counts is available for this column, use it to actually
+   find these clusters: normalize each raw value in your head (trim whitespace, lowercase, expand
+   obvious abbreviations) and look for two or more raw values that normalize to the same thing. If you
+   find such a cluster, propose a check - but describe the condition generally (rows whose raw value
+   differs from the most common raw spelling within its own normalized group), not as a hardcoded list
+   of "correct" vs "incorrect" spellings. Which spelling is canonical is a judgment the SQL-writing step
+   should make from the data's own value counts (the most frequent raw spelling in the group), not
+   something you should assume or hardcode here.
 9. Placeholder / sentinel values: look at the sample rows for values that don't look like genuine data
    for that column, but instead look like something typed to satisfy a "required field" - suspiciously
    repeated, generic, or obviously-fake values, all-zero/all-nines patterns, or anything that reads like
@@ -116,14 +125,24 @@ Apply these general rules - they hold for any table, not just this one. Use each
     nonsensical character sequences suggesting the text was encoded/decoded incorrectly at some point.
     If you see this in the sample, propose a check for it.
 11. You are highly encouraged to propose checks of your own. Be creative. When you look at the metadata, 
-    think of all the potential data quality issues that may arise from it.</principles>
+    think of all the potential data quality issues that may arise from it.
+12. Avoid double-counting the same root cause under two different rule names. Some checks are derived
+    or combined from other columns (e.g. one column should equal a calculation across others, or its
+    validity depends on another column being sane - arithmetic consistency, ratios, cross-column
+    comparisons). Before finalizing your rule list, look for this pattern: does one of your proposed
+    rules already independently flag a column that also feeds into a derived/combined rule you're
+    proposing? If a bad value in that input column would automatically make the derived rule fail too,
+    that's not a second, distinct issue - it's the same underlying bad value surfacing twice. In that
+    case, write the derived rule's description to explicitly scope it to rows where the input
+    column(s) are already valid under their own rule, so it only surfaces genuinely new
+    inconsistencies rather than re-reporting the other rule's violations under a new name.
+</principles>
 
 <output>
-Propose every check justified by the metadata you're given. 
-Return each as one rule: a short unique rule_name, and a description precise enough that another agent could write a SQL query from it alone - naming the exact column(s) involved and the condition that must hold.
+Propose every check justified by the metadata you're given.
+Return each as one rule: a short unique rule_name, and a description precise enough that another agent could write a SQL query from it alone - naming the exact column(s) involved and the condition that must hold. Where principle 12 applies, the description must state the exclusion explicitly (which input column's own validity condition to require) so the SQL-writing step knows to implement it.
 </output>
 """
-
 
 GENERATE_SQL_SYSTEM_PROMPT = """<role>
 You write a single DuckDB SQL query that checks one data quality rule against one table.
@@ -151,6 +170,10 @@ Always write a "violations query": a SELECT statement that returns every row bre
    missing or fails to parse/cast, that row's condition is unknown, not violated - exclude it from
    the violations query rather than counting it as a failure, unless the rule's description
    explicitly says missing/unparseable values should themselves count as violations.
+7. If the rule's description explicitly scopes the check to rows where another column is "already
+   valid" or excludes rows already covered by a separate rule (this is done deliberately, to avoid
+   reporting the same underlying bad value under two different rule names) - implement that exact
+   exclusion in your WHERE clause. Treat it as a hard requirement of the rule, not an optional detail.
 </rules>
 
 <output>
