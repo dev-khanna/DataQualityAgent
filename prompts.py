@@ -89,6 +89,9 @@ You plan the data quality (DQ) checks to run for one database table, given its p
 <input>
 You will receive the table's full profiled metadata in the next message: schema, row count, sample rows, per-column stats (null_count, distinct_count, distinct_ratio), the inferred primary key, and low_cardinality_value_counts - for every column with a small enough number of distinct values, the true, complete list of every distinct raw value actually present in the table, each with its row count. This is not a sample; it's every value that exists.
 For format, placeholder, and encoding issues, the sample rows are your primary evidence, not just a sanity check - inspect them closely. For the expected-set-of-values and spelling/normalization checks in principles 4 and 8, prefer low_cardinality_value_counts over the sample rows whenever a column has it - the sample is only a handful of rows and can easily miss a value that's simply less common, even though it's genuine data.
+Because the sample is small relative to the full table, a suspicious pattern you see only once is
+still meaningful, not noise to dismiss - the true prevalence in the full table is very likely higher
+than what a small sample shows. Propose the check rather than waiting for multiple confirming examples.
 </input>
 
 <principles>
@@ -116,7 +119,9 @@ Apply these general rules - they hold for any table, not just this one. Use each
    differs from the most common raw spelling within its own normalized group), not as a hardcoded list
    of "correct" vs "incorrect" spellings. Which spelling is canonical is a judgment the SQL-writing step
    should make from the data's own value counts (the most frequent raw spelling in the group), not
-   something you should assume or hardcode here.
+   something you should assume or hardcode here. Apply this independently to every column that could plausibly have spelling/casing variants, not just
+   the first one you notice - a table can have more than one normalization issue at once (e.g. both a
+   country field and a status field), and finding one does not mean the others are clean.
 9. Placeholder / sentinel values: look at the sample rows for values that don't look like genuine data
    for that column, but instead look like something typed to satisfy a "required field" - suspiciously
    repeated, generic, or obviously-fake values, all-zero/all-nines patterns, or anything that reads like
@@ -136,6 +141,13 @@ Apply these general rules - they hold for any table, not just this one. Use each
     case, write the derived rule's description to explicitly scope it to rows where the input
     column(s) are already valid under their own rule, so it only surfaces genuinely new
     inconsistencies rather than re-reporting the other rule's violations under a new name.
+13. Cross-column completeness: some columns are alternative ways of satisfying one underlying
+    requirement rather than independent fields (e.g. an email column and a phone column both serving
+    as "a way to contact this record's owner"). Checking each column's null rate on its own can miss
+    this - a row can look fine column-by-column while still failing the actual requirement that at
+    least one of them be populated. When two or more columns plausibly serve the same purpose, propose
+    a check for rows where all of them are simultaneously null/empty, in addition to (not instead of)
+    each column's own null-rate check under principle 5 or 6.
 </principles>
 
 <output>
@@ -161,11 +173,13 @@ Always write a "violations query": a SELECT statement that returns every row bre
 2. Use only the table and columns you were given - never invent or guess a column name.
 3. Exactly one statement.
 4. If previous_attempt_error is present, fix that specific problem - don't rewrite the query from scratch in an unrelated way.
-5. For format/shape-conformance checks, base "valid" on the predominant pattern you can see among
-   this column's own values - not an idealized external standard. Real-world data often contains
-   legitimate variation (e.g. apostrophes in names, regional phone formats) that a textbook-perfect
-   pattern would wrongly reject. If unsure whether a variant is a real violation or just an unusual
-   but valid value, prefer the interpretation consistent with more of the sample data.
+5. Implement the rule's condition exactly as written - don't narrow, loosen, or substitute your own
+   judgment about what's "probably" a real violation. The description was written by an agent that
+   already inspected this table's actual data, so treat it as the source of truth, not a starting
+   point to second-guess. If the condition is itself data-dependent (e.g. "the most frequent
+   normalized spelling in the group", "values outside the typical range for this column"), express
+   that as a computation in the SQL itself - a subquery, window function, or aggregate evaluated
+   against the live table - rather than assuming, guessing, or hardcoding a specific value.
 6. If a rule compares or combines two columns (date ordering, arithmetic, etc.) and one side is
    missing or fails to parse/cast, that row's condition is unknown, not violated - exclude it from
    the violations query rather than counting it as a failure, unless the rule's description

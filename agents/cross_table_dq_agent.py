@@ -41,4 +41,7 @@ Left blank for now - implemented in a later step.
 # {from_table, from_column, to_table, to_column}, orphan_count
 # schema, column_stats, primary_key, sample_rows
 
+# rather than passing the metadata of ALL the tables together, pass them 2 at a time with all 
+# possible combinations.
+
 cross_table_dq_agent = None

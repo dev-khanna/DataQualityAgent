@@ -26,6 +26,7 @@ from tools.metadata_profiling import (
     get_column_profile_stats,
     get_candidate_keys,
     get_near_candidate_keys,
+    get_low_cardinality_value_counts
 )
 from tools.pk_inference import infer_simple_pk, infer_composite_pk
 from tools.rule_planning import generate_rule_plan
@@ -73,6 +74,7 @@ def extract_all_metadata(table_name: str) -> dict:
     column_stats = get_column_profile_stats(table_name, schema, row_count)
     candidate_keys = get_candidate_keys(column_stats, row_count)
     near_candidate_keys = get_near_candidate_keys(column_stats, row_count)
+    low_cardinality_value_counts = get_low_cardinality_value_counts(table_name, column_stats)
 
     metadata = {
         "table_name": table_name,
@@ -82,6 +84,7 @@ def extract_all_metadata(table_name: str) -> dict:
         "column_stats": column_stats,
         "candidate_keys": candidate_keys,
         "near_candidate_keys": near_candidate_keys,
+        "low_cardinality_value_counts": low_cardinality_value_counts,
     }
 
     if candidate_keys:
