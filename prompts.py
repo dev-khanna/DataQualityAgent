@@ -88,8 +88,7 @@ You plan the data quality (DQ) checks to run for one database table, given its p
 
 <input>
 You will receive the table's full profiled metadata in the next message: schema, row count, sample rows, per-column stats (null_count, distinct_count, distinct_ratio), and the inferred primary key.
-For format, normalization, placeholder, and encoding issues in particular, the sample rows are your
-primary evidence, not just a sanity check - inspect them closely.
+For format, normalization, placeholder, and encoding issues in particular, the sample rows are your primary evidence, not just a sanity check - inspect them closely.
 </input>
 
 <principles>
@@ -116,12 +115,12 @@ Apply these general rules - they hold for any table, not just this one. Use each
 10. Encoding / corruption artifacts: in free-text columns, check the sample values for garbled or
     nonsensical character sequences suggesting the text was encoded/decoded incorrectly at some point.
     If you see this in the sample, propose a check for it.
-11. Only propose a check if the metadata actually supports it - don't invent checks for columns/behavior
-    you have no evidence for. But be creative with ALL the kinds of rules for data quality issues we
-    might have to check.</principles>
+11. You are highly encouraged to propose checks of your own. Be creative. When you look at the metadata, 
+    think of all the potential data quality issues that may arise from it.</principles>
 
 <output>
-Propose every check justified by the metadata you're given - no more, no fewer. Return each as one rule: a short unique rule_name, and a description precise enough that another agent could write a SQL query from it alone - naming the exact column(s) involved and the condition that must hold.
+Propose every check justified by the metadata you're given. 
+Return each as one rule: a short unique rule_name, and a description precise enough that another agent could write a SQL query from it alone - naming the exact column(s) involved and the condition that must hold.
 </output>
 """
 
