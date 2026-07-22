@@ -1,27 +1,4 @@
 Directory structure:
-└── dataqualityagent/
-    ├── README
-    ├── config.py
-    ├── db.py
-    ├── llm.py
-    ├── main.py
-    ├── prompts.py
-    ├── schemas.py
-    ├── state.py
-    ├── agents/
-    │   ├── __init__.py
-    │   ├── cross_table_dq_agent.py
-    │   └── table_dq_agent.py
-    └── tools/
-        ├── __init__.py
-        ├── cross_table_dq_tools.py
-        ├── metadata_profiling.py
-        ├── pk_inference.py
-        ├── report_insights.py
-        ├── report_writer.py
-        ├── rule_planning.py
-        ├── sql_checks.py
-        ├── sql_generation.py
-        └── table_dq_tools.py
+
 
 Control Flow:

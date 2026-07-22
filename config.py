@@ -7,7 +7,7 @@ All the constants in our pipeline are established here.
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data" / "synthea_dataset"
+DATA_DIR = BASE_DIR / "data" 
 
 GEMINI_MODEL_NAME = "gemini-3.1-flash-lite"
 GEMINI_MODEL_PROVIDER = "google_genai"
