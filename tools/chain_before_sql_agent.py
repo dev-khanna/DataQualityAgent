@@ -36,9 +36,8 @@ def extract_metadata(table_name: str) -> dict:
     those.
 
     Returns the full metadata dict: table_name, schema, row_count,
-    sample_rows, column_stats, candidate_keys, near_candidate_keys,
-    low_cardinality_value_counts, primary_key, pk_rationale,
-    pk_inference_method.
+    sample_rows, column_stats, candidate_keys, near_candidate_keys, 
+    primary_key, pk_rationale, pk_inference_method.
     """
     schema = get_schema(table_name)
     row_count = get_row_count(table_name)
