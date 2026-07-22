@@ -2,3 +2,4 @@
 *.duckdb.wal
 .env
 *.csv
+DATA_QUALITY_ANSWER_KEY.md

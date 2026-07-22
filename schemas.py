@@ -52,5 +52,3 @@ class ReportInsights(BaseModel):
     """Structured output for the insight-generation call."""
 
     insights: List[RuleInsight] = Field(description="One insight per rule bundle you were given.")
-
-

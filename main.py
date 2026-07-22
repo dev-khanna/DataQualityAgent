@@ -13,8 +13,9 @@ Entry point for the DQ pipeline.
 
 from config import DATA_DIR
 from db import load_tables
-from dataqualityagent.agents.individual_table_dq_agent import run_individual_table_dq_check
+from agents.individual_table_dq_agent import run_individual_table_dq_check
 from agents.cross_table_dq_agent import cross_table_dq_agent
+from tools.report import reset_report  
 
 
 def run_cross_table_dq_checks() -> None:
@@ -22,7 +23,7 @@ def run_cross_table_dq_checks() -> None:
 
 
 if __name__ == "__main__":
-    #reset_report()
+    reset_report()
     table_names = load_tables(DATA_DIR)
 
     for table in table_names:

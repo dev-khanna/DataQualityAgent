@@ -28,6 +28,19 @@ SAMPLE_ROWS_LIMIT = 20
 
 NEAR_CANDIDATE_KEY_THRESHOLD = 0.75
 
+# A column with at most this many distinct values is treated as a closed
+# set of categories, and gets its raw value counts profiled (see
+# get_low_cardinality_value_counts) so the rule planner can spot typos
+# and normalization issues (RULE_PLAN_SYSTEM_PROMPT clue 4).
+LOW_CARDINALITY_MAX_DISTINCT = 30
+
+# How many times execute_sql will let the orchestrator fix and resubmit a
+# rule's queries before the rule is dropped automatically (see
+# INDIVIDUAL_TABLE_DQ_SYSTEM_PROMPT's <workflow> step 3).
+MAX_RETRIES = 3
+
+MAX_VIOLATION_ROWS_SHOWN = 20
+
 FORBIDDEN_KEYWORDS = {
     "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "REPLACE",
     "ATTACH", "DETACH", "COPY", "EXPORT", "IMPORT", "PRAGMA", "CALL",

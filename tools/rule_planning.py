@@ -18,10 +18,10 @@ from prompts import RULE_PLAN_SYSTEM_PROMPT
 from schemas import RulePlan
 
 
-def generate_rule_plan(metadata: dict) -> :
+def generate_rule_plan(metadata: dict) -> RulePlan:
     structured_model = gemini_model.with_structured_output(RulePlan)
     messages = [
         SystemMessage(content=RULE_PLAN_SYSTEM_PROMPT),
         HumanMessage(content=json.dumps(metadata, default=str)),
     ]
-    #complete the rest of it
+    return structured_model.invoke(messages)

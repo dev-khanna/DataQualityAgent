@@ -14,5 +14,12 @@ from langgraph.graph.message import add_messages
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
 
-#i'm not sure right now if messages are being saved here effectively, 
-#so check if that's being done & if not, implement it.
+# Resolved: yes, messages are being saved/accumulated correctly here - the
+# `add_messages` reducer appends each new message to the list instead of
+# overwriting it, which is the standard LangGraph pattern for a running
+# conversation. In practice this file isn't wired into the agents directly:
+# create_agent() (used in agents/individual_table_dq_agent.py) already
+# builds an equivalent state schema for you, and TodoListMiddleware extends
+# it with its own `todos` field automatically. This class is kept around in
+# case a future agent needs a plain, custom state instead of create_agent's
+# default.

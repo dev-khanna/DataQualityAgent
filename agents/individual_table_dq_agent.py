@@ -30,16 +30,35 @@ each table, one at a time:
    append_result tool. After this, we move on to the next rule to check.
 """
 
-#imports skipped for now, as there might be big file changes
+from langchain_core.messages import HumanMessage
+from langchain.agents import create_agent
+from langchain.agents.middleware import TodoListMiddleware
+
+from llm import gemini_model
+from prompts import INDIVIDUAL_TABLE_DQ_SYSTEM_PROMPT
+from tools.chain_before_sql_agent import extract_metadata, plan_rules
+from tools.sql_agent_tools import execute_sql, append_result
 
 tools = [execute_sql, append_result]
 
 individual_table_dq_agent = create_agent(
     model=gemini_model,
     tools=tools,
-    system_prompt=TABLE_DQ_SYSTEM_PROMPT,
+    system_prompt=INDIVIDUAL_TABLE_DQ_SYSTEM_PROMPT,
     middleware=[TodoListMiddleware()],
 )
+
+
+def _format_schema(schema: list[dict]) -> str:
+    """Renders the profiled schema as plain 'column_name (column_type)'
+    lines - the exact column names the agent must use in every query."""
+    return "\n".join(f"- {col['column_name']} ({col['column_type']})" for col in schema)
+
+
+def _format_rules(rules: list) -> str:
+    """Renders the planned rules as 'rule_name: description' lines - this
+    table's already-populated Todo List."""
+    return "\n".join(f"- {rule.rule_name}: {rule.description}" for rule in rules)
 
 
 def run_individual_table_dq_check(table_name: str) -> dict:
@@ -47,3 +66,18 @@ def run_individual_table_dq_check(table_name: str) -> dict:
     Runs the full single-table DQ pipeline for one table. 
     Check module docstring for the three stages.
     """
+    metadata = extract_metadata(table_name)
+    rule_plan = plan_rules(metadata)
+
+    first_message = HumanMessage(
+        content=(
+            f"Table: {table_name}\n\n"
+            f"Schema (use these exact column names and types in every query):\n"
+            f"{_format_schema(metadata['schema'])}\n\n"
+            f"Your Todo List for this table - one item per rule, already "
+            f"planned for you:\n"
+            f"{_format_rules(rule_plan.rules)}"
+        )
+    )
+
+    return individual_table_dq_agent.invoke({"messages": [first_message]})
