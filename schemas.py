@@ -4,6 +4,8 @@ schemas.py
 Pydantic schemas for any LLM call that needs structured output (e.g. PK
 inference, rule planning, report entries). Keep every schema to
 BaseModel + Field only - no custom validators, no extra config classes.
+
+All of these can be edited but keep it simple, minimal and easy to understand.
 """
 
 from typing import List
@@ -34,28 +36,21 @@ class DQRule(BaseModel):
 
 
 class RulePlan(BaseModel):
-    """Structured output for create_rule_plan."""
+    """Structured output for tools.dq_chain.plan_rules."""
 
     rules: List[DQRule] = Field(description="Every data quality check to run for this table.")
 
 
-class GeneratedSQL(BaseModel):
-    """Structured output for generate_sql."""
-
-    sql: str = Field(
-        description="A SELECT (or WITH ... SELECT) statement that returns every row "
-        "violating the rule. Must return zero rows if the table fully satisfies the rule."
-    )
-
-
 class RuleInsight(BaseModel):
-    """One rule's plain-language takeaway, for write_report."""
+    """One rule's plain-language takeaway, generated as it's checked off."""
 
     rule_name: str = Field(description="Which rule this insight is for - must match a rule_name you were given.")
     insight: str = Field(description="A one to two sentence, plain-language takeaway from that rule's result.")
 
 
 class ReportInsights(BaseModel):
-    """Structured output for the batched insight-generation call."""
+    """Structured output for the insight-generation call."""
 
-    insights: List[RuleInsight] = Field(description="One insight per rule result you were given.")
+    insights: List[RuleInsight] = Field(description="One insight per rule bundle you were given.")
+
+

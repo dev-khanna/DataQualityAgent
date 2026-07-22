@@ -1,11 +1,12 @@
 """
 tools/rule_planning.py
 
-Agentic rule planning. Gives the LLM the table's full profiled metadata
-plus a generic set of principles for deriving DQ checks from it (see
-RULE_PLAN_SYSTEM_PROMPT), and asks it to propose the full rule list.
-Mirrors tools/pk_inference.py's pattern exactly: one structured-output
-LLM call, no retrieval involved.
+Deterministic LLM call. It inputs the table's complete profiled metadata
+and a generic set of principles for deriving DQ checks from it 
+(RULE_PLAN_SYSTEM_PROMPT), and asks it to come up with a bunch of rules 
+that may indicate possible data quality issues that may exist due to a column
+or the relationship between multiple columns within a table. As and when it
+comes up with rules, they must populate todo_list.md. 
 """
 
 import json
@@ -17,10 +18,10 @@ from prompts import RULE_PLAN_SYSTEM_PROMPT
 from schemas import RulePlan
 
 
-def generate_rule_plan(metadata: dict) -> RulePlan:
+def generate_rule_plan(metadata: dict) -> :
     structured_model = gemini_model.with_structured_output(RulePlan)
     messages = [
         SystemMessage(content=RULE_PLAN_SYSTEM_PROMPT),
         HumanMessage(content=json.dumps(metadata, default=str)),
     ]
-    return structured_model.invoke(messages)
+    #complete the rest of it

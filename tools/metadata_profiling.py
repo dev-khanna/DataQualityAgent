@@ -1,9 +1,9 @@
 """
 tools/metadata_profiling.py
 
-Deterministic, non-LLM helpers that extract_all_metadata composes to
+Deterministic, non-LLM helpers that extract_metadata composes to
 profile a table. Every function here talks to DuckDB directly and
-returns plain Python data structures - no LLM calls happen in this file.
+returns plain Python data structures. No LLM calls happen in this file.
 """
 
 from typing import Any
@@ -86,22 +86,3 @@ def get_near_candidate_keys(column_stats: list[dict[str, Any]], row_count: int) 
         if stat["null_count"] == 0
         and config.NEAR_CANDIDATE_KEY_THRESHOLD <= stat["distinct_ratio"] < 1.0
     ]
-
-
-def get_low_cardinality_value_counts(
-    table_name: str, column_stats: list[dict], max_distinct: int = 20
-) -> dict[str, list[dict]]:
-    """For every column with few enough distinct values, the complete
-    list of raw values present, each with its row count."""
-    con = get_connection()
-    result = {}
-    for stat in column_stats:
-        if not (0 < stat["distinct_count"] <= max_distinct):
-            continue
-        col = stat["column_name"]
-        rows = con.execute(
-            f'SELECT "{col}" AS value, COUNT(*) AS n FROM "{table_name}" '
-            f'WHERE "{col}" IS NOT NULL GROUP BY "{col}" ORDER BY n DESC'
-        ).fetchall()
-        result[col] = [{"value": v, "count": n} for v, n in rows]
-    return result

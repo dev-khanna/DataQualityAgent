@@ -1,9 +1,7 @@
 """
 config.py
 
-Central place for every constant used across the DQ pipeline: file paths
-and model configuration. Nothing else in this project should hardcode
-these values directly.
+All the constants in our pipeline are established here.
 """
 
 from pathlib import Path
@@ -24,6 +22,14 @@ OPENROUTER_MAX_TOKENS = 5000
 
 REPORT_PATH = BASE_DIR / "dq_report.csv"
 
+TODO_DIR = BASE_DIR / "todo_list.md"
+
 SAMPLE_ROWS_LIMIT = 20
 
 NEAR_CANDIDATE_KEY_THRESHOLD = 0.75
+
+FORBIDDEN_KEYWORDS = {
+    "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "REPLACE",
+    "ATTACH", "DETACH", "COPY", "EXPORT", "IMPORT", "PRAGMA", "CALL",
+    "GRANT", "REVOKE", "TRUNCATE", "VACUUM", "INSTALL", "LOAD",
+}
