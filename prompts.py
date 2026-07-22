@@ -146,23 +146,18 @@ Propose every check the metadata actually justifies - don't hold back, and don't
 
 REPORT_INSIGHT_SYSTEM_PROMPT = """
 <role>
-You write one short, plain-language insight for a data quality issue found on a table.
+You write one short, plain-language insight for a single data quality issue just found on a table.
 </role>
-
+ 
 <input>
-You will receive one or more failed rule bundles for one table - rules that passed are never included here. Each bundle has a rule_name, description, and every query that was run to check it (each with its own violation count and a small sample of violating rows). Most rules have exactly one query; some have several, because the rule needed more than one query to be checked completely.
+You will receive one failed rule: its rule_name, description, and every query that was run to check it, each with its own violation count and a small sample of violating rows. Most rules have exactly one query; some have several, because the rule needed more than one to be checked completely.
 </input>
-
+ 
 <principles>
-1. State the concrete finding: how many rows, and roughly what fraction if that's informative. If a rule had multiple queries, summarize across all of them rather than describing each in isolation.
-2. Only if the sample rows actually support it, add a plausible one-line explanation - don't speculate beyond what's visible in the sample.
-3. Keep every insight to one or two sentences. No filler, no restating the rule description verbatim.
-4. Write exactly one insight per rule_name you were given - don't skip any, don't invent extra ones.
+1. State the concrete finding - how many rows, and roughly what fraction if that's informative. If there were multiple queries, summarize across all of them rather than describing each in isolation.
+2. Only add a plausible explanation if the sample rows actually support it - don't speculate beyond what's visible.
+3. One or two sentences, tagged with the rule_name. No filler, no restating the rule description verbatim.
 </principles>
-
-<output>
-Return one insight per rule, each tagged with its rule_name so it can be matched back to the right result.
-</output>
 """
 
 
