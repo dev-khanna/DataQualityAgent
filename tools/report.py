@@ -22,24 +22,45 @@ REPORT_FIELDNAMES = ["Rule", "Queries", "Output", "Insight"]
 
 
 def generate_insight(rule_name: str, description: str, results: list[dict]) -> str:
-    """Makes the one LLM call described by REPORT_INSIGHT_SYSTEM_PROMPT:
-    given a failed rule's name, description, and every query that was run
-    for it (each with its own rows), returns a one-to-two sentence
-    plain-language insight."""
+    """Generate a concise, accurate plain-language insight for a failed rule.
+
+    The LLM receives:
+    - The exact deterministic violation count from SQL execution.
+    - Only a small sample of violating rows.
+    - The SQL query that produced the violations.
+
+    The LLM does NOT receive the full violation dataset, reducing token usage.
+    """
+
     structured_model = gemini_model.with_structured_output(ReportInsights)
+    compact_results = []
+
+    for result in results:
+        compact_results.append(
+            {
+                "query": result["query"],
+                "violation_count": result.get("row_count", len(result.get("rows", []))),
+                "sample_violations": result.get("rows", [])[:3],
+            }
+        )
+
     rule_bundle = {
         "rule_name": rule_name,
         "description": description,
-        "queries": results,
+        "results": compact_results,
     }
+
     messages = [
         SystemMessage(content=REPORT_INSIGHT_SYSTEM_PROMPT),
-        HumanMessage(content=json.dumps([rule_bundle], default=str)),
+        HumanMessage(content=json.dumps(rule_bundle, default=str)),
     ]
+
     response = structured_model.invoke(messages)
+
     for insight in response.insights:
         if insight.rule_name == rule_name:
             return insight.insight
+
     # Fall back to whatever came back if the name didn't round-trip exactly.
     return response.insights[0].insight if response.insights else ""
 

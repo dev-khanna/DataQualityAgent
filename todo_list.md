@@ -142,3 +142,49 @@
 {'city_whitespace': 'Flag city values containing leading or trailing whitespace.'}: pending
 {'state_casing': 'Flag state values with casing inconsistencies.'}: pending
 {'customer_segment_casing': 'Flag customer_segment values that do not match the expected casing (e.g., 'Standard', 'VIP').'}: pending
+
+<!-- table: customers -->
+{'customer_id_unique': 'The customer_id column must be unique and non-null for all records.'}: pending
+{'email_completeness': 'The email column must not be NULL or contain only blank/whitespace characters.'}: pending
+{'email_format': 'The email column must contain a valid format, including an '@' symbol and a valid domain suffix. Exclude rows already caught by the email_completeness rule.'}: pending
+{'phone_completeness': 'The phone column must not be NULL or contain only blank/whitespace characters.'}: pending
+{'phone_validity': 'The phone column must not contain placeholders (e.g., 'N/A') or casing anomalies. Exclude rows already caught by the phone_completeness rule.'}: pending
+{'signup_date_format': 'The signup_date column must be in YYYY-MM-DD format. Exclude NULL values.'}: pending
+{'address_line1_placeholder': 'The address_line1 column must not contain common placeholder strings.'}: pending
+{'city_cleanliness': 'The city column must not contain leading or trailing whitespace and must be consistently cased.'}: pending
+{'state_cleanliness': 'The state column must not contain leading or trailing whitespace and must be consistently cased.'}: pending
+{'country_standardization': 'The country column must be normalized to a standardized set of country names (e.g., 'USA' instead of 'US' or 'U.S.A.').'}: pending
+{'customer_segment_casing': 'The customer_segment column must be consistently cased.'}: pending
+{'loyalty_points_non_negative': 'The loyalty_points column must be greater than or equal to zero.'}: pending
+{'first_name_encoding': 'The first_name column must be free of encoding anomalies.'}: pending
+{'last_name_encoding': 'The last_name column must be free of encoding anomalies.'}: pending
+{'postal_code_placeholder': 'The postal_code column must not contain common placeholder strings.'}: pending
+
+<!-- table: order_items -->
+{'pk_order_items_uniqueness': 'Ensure the combination of order_id and line_number is unique and does not contain any null values across the entire table.'}: pending
+{'order_id_pattern_check': 'Verify that order_id follows the format 'ORD' followed by exactly 7 digits.'}: pending
+{'customer_id_pattern_check': 'Verify that customer_id follows the format 'CUST' followed by exactly 6 digits.'}: pending
+{'product_sku_whitespace_check': 'Flag rows in product_id and sku columns that contain leading or trailing whitespace.'}: pending
+{'product_name_encoding_check': 'Flag rows in the product_name column that contain garbled characters or encoding anomalies.'}: pending
+{'unit_price_validity': 'Ensure unit_price is a valid numeric string that is greater than 0.'}: pending
+{'quantity_validity': 'Ensure quantity is a valid numeric string representing a positive integer. This check implicitly captures rows with text placeholders, negative numbers, or non-numeric values like 'several'.'}: pending
+{'line_total_accuracy': 'Verify that the line_total column equals the calculated result of (unit_price * quantity * (1 - discount_pct / 100.0) * (1 + tax_rate)). Skip rows already flagged by the unit_price_validity or quantity_validity rules.'}: pending
+{'discount_pct_range': 'Ensure discount_pct is between 0 and 100 inclusive.'}: pending
+{'tax_rate_non_negative': 'Ensure tax_rate is greater than or equal to 0.'}: pending
+{'return_dependency_check': 'If return_flag is FALSE, return_reason must be NULL or blank. If return_flag is TRUE, return_reason must not be NULL or blank.'}: pending
+{'category_validity': 'Ensure the category column only contains the 10 known valid categories (Toys & Games, Office Supplies, Apparel, Grocery, Electronics, Books, Home & Kitchen, Sports & Outdoors, Automotive, Beauty & Personal Care).'}: pending
+{'warehouse_code_validity': 'Ensure the warehouse_code column only contains one of the four known valid codes: WH-EAST, WH-CENTRAL, WH-INTL, or WH-WEST.'}: pending
+{'uom_validity': 'Ensure the unit_of_measure column is either 'each' or 'pack'.'}: pending
+{'weight_positive': 'Ensure the weight_kg column contains only non-negative values.'}: pending
+
+<!-- table: orders -->
+{'order_id_completeness_and_uniqueness': 'The order_id column must contain no null values and must be fully unique across the entire table, serving as the primary key.'}: pending
+{'customer_id_format_check': 'The customer_id column must not be null and must match the pattern 'CUST' followed by digits.'}: pending
+{'order_date_format_check': 'The order_date column must follow a valid date format (e.g., YYYY-MM-DD, DD/MM/YYYY, or MM/DD/YYYY) that can be successfully parsed into a date type.'}: pending
+{'ship_date_consistency': 'For all rows where ship_date is not null, the ship_date value must be greater than or equal to the parsed value of the order_date column.'}: pending
+{'order_status_standardization': 'The order_status column must contain only canonical, case-insensitive values: 'Delivered', 'Shipped', 'Processing', 'Cancelled', 'Pending', or 'Returned'.'}: pending
+{'payment_method_validity': 'The payment_method column must not contain placeholders such as 'Unknown', 'N/A', 'NULL', '-', or 'xxx'.'}: pending
+{'item_count_positive': 'The item_count column must contain values greater than 0.'}: pending
+{'shipping_postal_code_validity': 'The shipping_postal_code column must not contain placeholders as indicated by the placeholder_count check.'}: pending
+{'shipping_country_validity': 'The shipping_country column must be one of the following canonical values: 'USA', 'United Kingdom', 'India', 'Canada', 'Australia', 'Germany', or 'France'.'}: pending
+{'total_amount_calculation_accuracy': 'The total_amount column must be a valid numeric string, and its value must equal the sum of subtotal, tax_amount, and shipping_cost. Exclude rows where total_amount is not a valid number.'}: pending
