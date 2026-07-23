@@ -19,6 +19,7 @@ from tools.metadata_profiling import (
     get_sample_rows,
     get_column_profile_stats,
     get_low_cardinality_value_counts,
+    get_text_anomaly_stats,
     get_candidate_keys,
     get_near_candidate_keys,
 )
@@ -33,11 +34,20 @@ def extract_metadata(table_name: str) -> dict:
     deterministic except for the single PK-inference LLM call.
 
     Computes the schema, row count, sample rows, and per-column profile
-    stats (null counts, distinct ratios, and - for low-cardinality
-    columns - raw value counts), finds every candidate key - both strict
-    (fully unique, non-null) and near (high distinct_ratio but not fully
-    unique, which often signals the exact uniqueness issue a DQ check is
-    meant to catch) - and infers the primary key from those.
+    stats (null counts, distinct ratios, - for low-cardinality columns,
+    raw value counts, and - for every VARCHAR column - blank/whitespace/
+    casing/encoding/placeholder anomaly counts), finds every candidate
+    key - both strict (fully unique, non-null) and near (high
+    distinct_ratio but not fully unique, which often signals the exact
+    uniqueness issue a DQ check is meant to catch) - and infers the
+    primary key from those.
+
+    The anomaly counts exist because a 20-row sample can easily contain
+    zero examples of a real but low-prevalence issue (stray whitespace,
+    mojibake, a lazy placeholder value) purely by chance - these are
+    computed over the whole table instead, so the rule planner has an
+    exact number instead of having to get lucky with the sample (see
+    RULE_PLAN_SYSTEM_PROMPT's <input> section).
 
     Returns the full metadata dict: table_name, schema, row_count,
     sample_rows, column_stats, candidate_keys, near_candidate_keys, 
@@ -49,10 +59,17 @@ def extract_metadata(table_name: str) -> dict:
     column_stats = get_column_profile_stats(table_name, schema, row_count)
 
     low_cardinality_value_counts = get_low_cardinality_value_counts(table_name, column_stats)
+    text_anomaly_stats = get_text_anomaly_stats(table_name, schema)
     for stat in column_stats:
         stat["low_cardinality_value_counts"] = low_cardinality_value_counts.get(
             stat["column_name"]
         )
+        anomalies = text_anomaly_stats.get(stat["column_name"], {})
+        stat["blank_count"] = anomalies.get("blank_count")
+        stat["whitespace_count"] = anomalies.get("whitespace_count")
+        stat["casing_anomaly_count"] = anomalies.get("casing_anomaly_count")
+        stat["encoding_anomaly_count"] = anomalies.get("encoding_anomaly_count")
+        stat["placeholder_count"] = anomalies.get("placeholder_count")
 
     candidate_keys = get_candidate_keys(column_stats, row_count)
     near_candidate_keys = get_near_candidate_keys(column_stats, row_count)

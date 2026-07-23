@@ -47,3 +47,98 @@
 {'total_amount_format_check': 'Verify that total_amount is a valid numeric string capable of being cast to a double.'}: pending
 {'pricing_integrity_check': 'Verify that the sum of subtotal, tax_amount, and shipping_cost equals total_amount. Exclude rows where total_amount is not a valid numeric format (already caught by total_amount_format_check).'}: pending
 {'item_count_positive_check': 'Verify that item_count is greater than 0 for every record.'}: pending
+
+<!-- table: customers -->
+{'customer_id_unique_non_null': 'The customer_id column must be unique and contain no null values to act as the primary key.'}: pending
+{'contact_info_required': 'Every record must have at least one valid method of contact. The combination of email and phone columns must not both be null or empty strings.'}: pending
+{'loyalty_points_non_negative': 'The loyalty_points column must contain non-negative values. Rows where loyalty_points is less than 0 are considered invalid.'}: pending
+{'signup_date_valid_format': 'The signup_date column is stored as VARCHAR and contains inconsistent date formats. It must be castable to a standard DATE format (e.g., YYYY-MM-DD). Flag rows that do not match a valid date format.'}: pending
+{'country_standardization': 'The country column contains redundant variations (e.g., USA, U.S.A., US, United States). Flag rows where country is not the canonical spelling (use the spelling with the highest frequency in the provided value counts).'}: pending
+{'city_trim_whitespace': 'The city column must not contain leading or trailing whitespace.'}: pending
+{'address_no_unknown_placeholder': 'The address_line1 column should not contain the placeholder value 'Unknown'. Flag all rows where address_line1 is 'Unknown'.'}: pending
+{'dob_not_future': 'The date_of_birth column must not contain dates in the future.'}: pending
+
+<!-- table: order_items -->
+{'pk_uniqueness_and_not_null': 'The combination of order_id and line_number must not be null and must be unique for every row.'}: pending
+{'unit_price_is_positive_numeric': 'The unit_price column must be castable to a numeric value and must be strictly greater than 0.'}: pending
+{'quantity_is_positive_integer': 'The quantity column must be castable to an integer and must be strictly greater than 0, excluding any non-numeric placeholders like 'N/A' or text representations.'}: pending
+{'discount_pct_range': 'The discount_pct column must be between 0 and 100 inclusive.'}: pending
+{'line_total_calculation': 'The line_total column must equal the product of unit_price (casted to double) and quantity (casted to integer), multiplied by (1 - discount_pct/100.0), rounded to 2 decimal places. Exclude rows where unit_price or quantity are non-numeric as these are already captured by their respective format checks.'}: pending
+{'return_reason_required': 'If return_flag is true, then return_reason must not be null or empty.'}: pending
+{'weight_kg_non_negative': 'The weight_kg column must be greater than or equal to 0.'}: pending
+{'tax_rate_non_negative': 'The tax_rate column must be greater than or equal to 0.'}: pending
+
+<!-- table: orders -->
+{'check_order_id_unique_not_null': 'The order_id column must be non-null and contain no duplicate values.'}: pending
+{'check_order_date_format': 'The order_date column must be in valid YYYY-MM-DD format. Identify rows where the date string does not follow this ISO format (e.g., fails to parse).'}: pending
+{'check_ship_date_sequence': 'For rows where ship_date is not null, the ship_date must be greater than or equal to the order_date.'}: pending
+{'check_order_status_standardized': 'The order_status column must contain only the following normalized values: 'Delivered', 'Shipped', 'Processing', 'Cancelled', 'Pending', 'Returned'. Flag any rows with variations like 'delivird', 'shiped', 'proccessing', or other misspellings/case-mismatches.'}: pending
+{'check_payment_method_validity': 'The payment_method column must not contain placeholders or invalid entries such as 'Unknown', 'None', 'NULL', 'N/A', 'TBD', 'xxx', or '-'.'}: pending
+{'check_item_count_positive': 'The item_count column must be greater than 0, as an order cannot contain zero items.'}: pending
+{'check_postal_code_length': 'The shipping_postal_code column should not contain suspicious placeholders or fragments; flag rows where the length of the string is less than 3 characters.'}: pending
+{'check_financials_non_negative': 'The columns subtotal, tax_amount, and shipping_cost must not be negative.'}: pending
+{'check_total_amount_calculation': 'The total_amount (as numeric) must equal the sum of subtotal, tax_amount, and shipping_cost. Only evaluate this check for rows that passed the check_financials_non_negative rule.'}: pending
+{'check_currency_country_mapping': 'Ensure consistency between shipping_country and currency (e.g., rows with shipping_country 'USA' should have currency 'USD'). Flag rows where the currency does not match the expected regional standard for that country.'}: pending
+
+<!-- table: customers -->
+{'pk_uniqueness': 'Verify that customer_id is unique and not null for all records.'}: pending
+{'loyalty_points_non_negative': 'Check that the loyalty_points column contains only non-negative values (greater than or equal to zero).'}: pending
+{'email_format_check': 'Validate that the email column follows a standard email format (must contain '@' and '.' characters). Exclude rows where email is NULL.'}: pending
+{'signup_date_format_check': 'Verify that the signup_date column (which is stored as VARCHAR) follows a consistent date format (e.g., YYYY-MM-DD). Flag rows that do not match this format, as the samples show inconsistent formatting like '31/07/2022' vs '2023-10-19'.'}: pending
+{'country_standardization_check': 'Identify inconsistencies in the country column by flagging variations that represent the same entity, specifically clustering 'USA', 'U.S.A.', 'US', 'United States' and 'UK', 'U.K.', 'United Kingdom'.'}: pending
+{'contact_info_presence': 'Ensure that every customer record has at least one valid contact method by checking that either email or phone is not null and not empty.'}: pending
+{'signup_after_birth_date': 'Check that the signup_date is chronologically after the date_of_birth. Apply only to rows where both signup_date and date_of_birth contain valid, non-null date values.'}: pending
+{'update_after_signup_date': 'Check that the last_updated date is greater than or equal to the signup_date. Apply only to rows where both fields contain valid, non-null date values.'}: pending
+{'phone_format_sanity': 'Flag rows in the phone column containing non-numeric conversational text (e.g., 'call-ME'). Exclude rows where phone is NULL.'}: pending
+
+<!-- table: customers -->
+{'customer_id_unique_not_null': 'Verify that the customer_id column contains no NULL values and that every value is unique, confirming its role as the primary key.'}: pending
+{'country_standardization': 'Identify rows where the country value is an inconsistent alias, such as 'USA', 'U.S.A.', 'US', and 'United States' or 'UK', 'U.K.', and 'United Kingdom', suggesting multiple spelling variations for the same country.'}: pending
+{'signup_date_format_check': 'Verify that all values in the signup_date column strictly follow the YYYY-MM-DD date format. Flag any rows where the date is formatted differently, such as MM/DD/YYYY, or contains non-date strings.'}: pending
+{'last_updated_logic': 'Verify that the last_updated date is greater than or equal to the signup_date. Exclude rows where signup_date is NULL or failed the signup_date_format_check rule.'}: pending
+{'future_date_of_birth': 'Verify that date_of_birth is not a date in the future relative to the current date.'}: pending
+{'loyalty_points_non_negative': 'Verify that the loyalty_points column contains no negative values.'}: pending
+{'missing_contact_info': 'Verify that each customer has at least one form of contact; flag rows where both email and phone columns are NULL.'}: pending
+{'state_format_trim': 'Verify that the state column does not contain leading or trailing whitespace characters, identifying inconsistent data entry like ' MA '.'}: pending
+
+<!-- table: order_items -->
+{'pk_uniqueness': 'The combination of order_id and line_number must be unique and not null.'}: pending
+{'line_number_positive': 'The column line_number must be greater than 0.'}: pending
+{'quantity_valid_positive_integer': 'The column quantity must contain only valid positive integers. It currently contains non-numeric strings (like N/A, two, several) and negative values which must be excluded.'}: pending
+{'unit_price_valid_positive_numeric': 'The column unit_price must contain only valid positive numeric values. It is currently stored as VARCHAR and must be castable to a positive float.'}: pending
+{'discount_pct_range': 'The column discount_pct must be between 0 and 100 inclusive.'}: pending
+{'line_total_calculation': 'The column line_total should equal (CAST(unit_price AS DOUBLE) * CAST(quantity AS DOUBLE) * (1 - discount_pct / 100.0)). Exclude rows where unit_price or quantity values are invalid as these are already caught by the unit_price_valid_positive_numeric and quantity_valid_positive_integer rules.'}: pending
+{'return_reason_required': 'If return_flag is TRUE, return_reason must not be NULL.'}: pending
+{'sku_whitespace_check': 'The column sku should not have leading or trailing whitespace.'}: pending
+{'weight_kg_positive': 'The column weight_kg must be greater than 0.'}: pending
+{'tax_rate_non_negative': 'The column tax_rate must be greater than or equal to 0.'}: pending
+
+<!-- table: orders -->
+{'pk_check': 'Verify that order_id is unique and does not contain null values.'}: pending
+{'customer_id_required': 'Verify that customer_id is not null for every order.'}: pending
+{'order_date_format': 'Verify that order_date matches the YYYY-MM-DD format. Any value not following this date pattern is invalid.'}: pending
+{'order_status_normalization': 'Verify that order_status is one of the following standardized values: 'Delivered', 'Shipped', 'Processing', 'Cancelled', 'Pending', 'Returned'. All variations (case differences, typos like 'delivird') should be flagged as invalid.'}: pending
+{'payment_method_validity': 'Verify that payment_method contains a valid payment type. Rows with values such as 'Unknown', 'N/A', 'NULL', '-', or 'xxx' must be flagged as invalid.'}: pending
+{'item_count_positive': 'Verify that item_count is greater than 0.'}: pending
+{'tax_amount_non_negative': 'Verify that tax_amount is greater than or equal to 0.'}: pending
+{'total_amount_format': 'Verify that total_amount string can be cast to a numeric value. It should not contain non-numeric characters other than a leading '$' symbol or grouping commas.'}: pending
+{'total_amount_math': 'Verify that the numeric value of total_amount equals the sum of subtotal, tax_amount, and shipping_cost. Exclude rows that failed the total_amount_format check.'}: pending
+{'ship_date_sequence': 'Verify that ship_date is greater than or equal to order_date for all rows where ship_date is not null.'}: pending
+
+<!-- table: customers -->
+{'pk_uniqueness': 'Ensure customer_id is not null and unique across the table.'}: pending
+{'contact_info_present': 'Verify that every row has either a non-blank, non-null email or a non-blank, non-null phone number.'}: pending
+{'email_format': 'Ensure email values contain an '@' symbol and a valid domain format. Exclude rows where the email is blank as caught by the contact_info_present rule.'}: pending
+{'loyalty_points_non_negative': 'Verify that loyalty_points are greater than or equal to zero.'}: pending
+{'date_of_birth_past': 'Ensure date_of_birth is in the past (<= current date).'}: pending
+{'signup_date_format': 'Verify that signup_date strictly follows the YYYY-MM-DD format, flagging inconsistent formats like 'Month DD, YYYY'.'}: pending
+{'dates_logical_consistency': 'Ensure last_updated is greater than or equal to signup_date.'}: pending
+{'first_name_encoding': 'Flag rows where first_name contains encoding anomalies.'}: pending
+{'last_name_encoding': 'Flag rows where last_name contains encoding anomalies.'}: pending
+{'phone_placeholder': 'Flag rows where phone contains common placeholder strings (e.g., 'n/a', '000-000-0000').'}: pending
+{'address_placeholder': 'Flag rows where address_line1 contains placeholder strings.'}: pending
+{'postal_code_placeholder': 'Flag rows where postal_code contains placeholder strings.'}: pending
+{'country_standardization': 'Flag rows where country is not one of the standardized values (e.g., 'USA', 'India', 'UK', etc.) to address the high casing and spelling variation counts.'}: pending
+{'city_whitespace': 'Flag city values containing leading or trailing whitespace.'}: pending
+{'state_casing': 'Flag state values with casing inconsistencies.'}: pending
+{'customer_segment_casing': 'Flag customer_segment values that do not match the expected casing (e.g., 'Standard', 'VIP').'}: pending

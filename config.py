@@ -46,3 +46,26 @@ FORBIDDEN_KEYWORDS = {
     "ATTACH", "DETACH", "COPY", "EXPORT", "IMPORT", "PRAGMA", "CALL",
     "GRANT", "REVOKE", "TRUNCATE", "VACUUM", "INSTALL", "LOAD",
 }
+
+# --- Backing constants for tools/metadata_profiling.py's
+# get_text_anomaly_stats (see that file for what each stat means). Kept
+# here, not hardcoded in the profiling function, for the same reason
+# every other constant lives in this file: one place to tune them.
+ 
+# Common lazy-default / sentinel strings, checked case-insensitively
+# after trimming whitespace. This list is deliberately generic (not
+# tailored to any one column) - the same set is checked against every
+# VARCHAR column, and it is on the rule planner (clue 3) to decide, per
+# column, whether a nonzero placeholder_count is worth a rule.
+PLACEHOLDER_VALUES = {
+    "n/a", "na", "n.a.", "none", "null", "unknown", "tbd", "-", "xxx", "test",
+}
+ 
+# A "contains" pattern (used with regexp_matches, not the ~ full-match
+# operator - DuckDB's ~ requires the whole string to match) for the most
+# common mojibake byte sequences produced when UTF-8 text is decoded as
+# Latin-1/Windows-1252 and re-encoded: e.g. 'Ã©' for 'é', 'â€™' for a
+# right single quote, 'Â£' for '£'. This is a heuristic, not an
+# exhaustive encoding validator - it catches the common patterns, not
+# every possible corruption.
+MOJIBAKE_PATTERN = r"Ã.|â€.|Â."
