@@ -16,7 +16,13 @@ No LLM calls and no DuckDB calls happen here - it's just a dict.
 
 _descriptions: dict[tuple[str, str], str] = {}
 _results: dict[tuple[str, str], list[dict]] = {}
+_status: dict[tuple[str, str], str] = {}
 
+def set_status(table_name: str, rule_name: str, status: str) -> None:
+    _status[(table_name, rule_name)] = status
+
+def get_statuses(table_name: str) -> dict[str, str]:
+    return {r: s for (t, r), s in _status.items() if t == table_name}
 
 def register_rule(table_name: str, rule_name: str, description: str) -> None:
     """Called once per rule by plan_rules(), right after the rule plan

@@ -17,7 +17,7 @@ from langchain.tools import tool
 
 import config
 from tools.sql_agent_tool_helpers import validate_and_execute
-from tools.rule_registry import get_rule_description, pop_results, store_results
+from tools.rule_registry import get_rule_description, pop_results, store_results, set_status
 from tools.report import generate_insight, write_report_row
 
 # Counts fix-and-retry attempts per (table_name, rule_name), so execute_sql
@@ -69,6 +69,7 @@ def execute_sql(table_name: str, rule_name: str, sql: list[str]) -> dict:
     if result["status"] == "ok":
         _attempts.pop(key, None)
         store_results(table_name, rule_name, result["results"])
+        set_status(table_name, rule_name, "completed")
         return {"status": "ok", "results": result["results"]}
 
     attempts = _attempts.get(key, 0) + 1
@@ -76,6 +77,7 @@ def execute_sql(table_name: str, rule_name: str, sql: list[str]) -> dict:
 
     if attempts > config.MAX_RETRIES:
         _attempts.pop(key, None)
+        set_status(table_name, rule_name, "completed")
         return {
             "status": "dropped",
             "message": (

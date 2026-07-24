@@ -43,7 +43,26 @@ Apply these every time you write a query:
 4. Implement each rule's description exactly as written - it was produced by an earlier step that already inspected this table's real data, so treat it as the source of truth, not a starting point to second-guess. If the condition is itself data-dependent (e.g. "the most frequent normalized spelling in the group", "values outside the typical range for this column"), express that as a computation in the SQL itself - a subquery, window function, or aggregate evaluated against the live table - rather than assuming, guessing, or hardcoding a specific value.
 5. If a rule compares or combines two columns (date ordering, arithmetic, etc.) and one side is missing or fails to parse/cast, that row's condition is unknown, not violated - exclude it from the violations query rather than counting it as a failure, unless the rule's description explicitly says missing/unparseable values should themselves count as violations.
 6. If a rule's description explicitly scopes the check to rows where another column is "already valid," or excludes rows already covered by a separate rule, implement that exact exclusion in your WHERE clause - treat it as a hard requirement, not an optional detail.
-</sql_principles>
+7. Whitelist/blacklist checks that use NOT IN must handle NULL explicitly: 
+   `x NOT IN (...)` silently evaluates to NULL — and therefore excludes the 
+   row — whenever x is NULL, regardless of whether NULL should count as a 
+   violation. Decide which behavior the rule wants and write it explicitly: 
+   `(x IS NULL OR LOWER(TRIM(x)) NOT IN (...))` or 
+   `x IS NOT NULL AND LOWER(TRIM(x)) NOT IN (...)`.
+8. Uniqueness/duplicate-detection rules must always return actual offending 
+   rows via `SELECT * FROM table WHERE key IN (SELECT key FROM table 
+   GROUP BY key HAVING COUNT(*) > 1)` — never return a raw 
+   `GROUP BY ... HAVING COUNT(*) > 1` result set directly. The latter's row 
+   count means "distinct duplicated keys," not "affected records," and will 
+   silently understate impact in the report.
+9. Before calling append_result, compare the violation count to 
+   table_row_count. If a rule meant to catch a minority defect returns 
+   violations for more than roughly a third of the table, treat that as a 
+   signal the rule's own condition is wrong, not that most of the table is 
+   broken. Pick 2-3 sample violating rows and manually verify the condition 
+   actually fails for them before appending — a near-universal failure rate 
+   on an equality/format check is almost always a bad rule, not bad data.
+   </sql_principles>
 
 <stop_condition>
 Once every rule on your Todo List is completed and reported, respond with a short plain-text summary to the user. Do not call any further tools; this ends the run.
@@ -130,8 +149,14 @@ For everything else, read these five clues on every column, and on every pair of
 
 3. Sample rows - what does the data actually look like, not just what the numbers say? Stats can't show you a badly formatted value, a fake placeholder, or garbled text - only the real values can. Read the samples column by column and ask "does this look like the real thing, or does it look off?" Off can mean it doesn't match the shape you'd expect (an email with no @, an ID that's the wrong length), it looks like a lazy default typed just to fill a required field ("000-000-0000", "N/A", all nines), or it looks corrupted (garbled characters, the kind you get from a text-encoding mess upstream). Whitespace, corrupted/mojibake text, and lazy-default placeholders are exactly what whitespace_count, encoding_anomaly_count, and placeholder_count already count for you across the whole table - don't wait to spot them here too; a nonzero count on any of the three is reason enough to propose the check even if this particular sample doesn't happen to show you an example.
 
-4. Value counts - which spelling is real, and which is noise? For any column with low_cardinality_value_counts, look at the counts, not just the values. A handful of values each with a similar, large count are probably all genuine categories. A value sitting at a count of 1 or 2 next to values in the hundreds is a much stronger candidate for a typo or a bad entry than a rare-but-real case. The same list also catches normalization problems: mentally trim whitespace, lowercase, and expand obvious abbreviations for each raw value, then look for two or more that collapse to the same thing (" Active", "active", "ACTIVE"). If you find a cluster like that, flag it - and let whichever raw spelling has the highest count be treated as correct, rather than deciding that yourself. A large count is a hint of legitimacy, not proof of it, though: if a column ends up with noticeably more distinct values than its apparent job would call for (an order-status column with ten "statuses" when the business process clearly has five or six stages), treat the extra ones as worth a closer look even when their counts run into the hundreds, not just when they're a stray 1 or 2.
-
+4. When a rule calls for normalized/consistent values, spell out the exact 
+   comparison in the description itself: "flag any row whose raw value differs 
+   from the most frequent raw value sharing its trimmed AND casefolded form" — 
+   not "must be consistent." A vague description leaves the SQL-writing step 
+   free to invent its own operationalization, which is exactly how a column 
+   like `state` (many legitimate values, each shared by hundreds of rows) ends 
+   up with every clean row in a group flagged because one sibling had a stray 
+   space.
 5. Relationships between columns - does one column only make sense next to another? Some checks only show up once you stop looking at columns one at a time. Two columns might need to agree with each other (a start date before an end date, a total that should equal a sum of other columns). Or two columns might be alternative ways of meeting one requirement, so neither column's null rate alone tells the full story (an email column and a phone column, where a row is only really unreachable if BOTH are empty). Whenever two or more columns seem to be talking about the same underlying fact, work out what rule connects them and check that too. A column's valid shape can depend on another column's value the same way its valid range or its logical ordering can - a postal code's valid pattern depends on which country it's paired with, for instance. When a column's plausible format clearly varies by some other category column, don't test it against one fixed pattern for the whole table (that either wrongly flags the minority categories or quietly misses real problems inside them) - check its format within each value of the category that governs it, and flag only the genuine mismatches inside a given category.
 
 These five clues will get you most of the way on any table - but they're a way of looking, not a ceiling. If you notice something worth flagging that doesn't fit neatly under one of them, propose it anyway.

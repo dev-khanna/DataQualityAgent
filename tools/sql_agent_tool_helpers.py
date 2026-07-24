@@ -54,7 +54,7 @@ def safety_check(sql: list[str]) -> dict[str, str]:
     return errors
 
 
-def validate_and_execute(sql: list[str]) -> dict:
+def validate_and_execute(sql: list[str], table_name: str) -> dict:
     """
     Check docstring of execute_sql to understand its use.
 
@@ -100,9 +100,7 @@ def validate_and_execute(sql: list[str]) -> dict:
             runtime_errors[query] = str(e)
 
     if runtime_errors:
-        return {
-            "status": "runtime_error",
-            "sql_query_list": {query: runtime_errors.get(query) for query in sql},
-        }
+        return {"status": "runtime_error", "sql_query_list": {...}}
 
-    return {"status": "ok", "results": results}
+    table_row_count = con.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
+    return {"status": "ok", "results": results, "table_row_count": table_row_count}
