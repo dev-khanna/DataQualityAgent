@@ -14,8 +14,8 @@ Entry point for the DQ pipeline.
 from config import DATA_DIR
 from db import load_tables
 from agents.individual_table_dq_agent import run_individual_table_dq_check
-from agents.cross_table_dq_agent import cross_table_dq_agent
 from tools.report import reset_report  
+from tools.chain_before_sql_agent import reset_todo_list
 
 
 def run_cross_table_dq_checks() -> None:
@@ -24,9 +24,16 @@ def run_cross_table_dq_checks() -> None:
 
 if __name__ == "__main__":
     reset_report()
+    reset_todo_list()
     table_names = load_tables(DATA_DIR)
+    print("CSV files loaded into DuckDB successfully.\n")
 
+    print("Running individual table DQ checks pipeline..")
     for table in table_names:
+        print(f"Running DQ check on table {table}...")
         run_individual_table_dq_check(table)
+        print(f"{table} issues recorded successfully!")
 
     run_cross_table_dq_checks()
+
+    print("DONE")

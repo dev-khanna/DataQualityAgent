@@ -58,19 +58,37 @@ def execute_sql(table_name: str, rule_name: str, sql: list[str]) -> dict:
         sql: every SELECT / WITH ... SELECT query this rule needs, as a list.
 
     Returns:
-        On success: {"status": "ok", "results": [{"query", "rows", "row_count"}, ...]}
+        On success: {"status": "ok", "results": [{"query", "rows", "row_count"}, ...],
+            "table_row_count": int} - table_row_count is the table's total row
+            count, included so you can apply <sql_principles> item 9 (compare
+            the violation count against it before calling append_result).
         On a validation or runtime problem: {"status": ..., "sql_query_list": {query: error_or_None}}
         Once retries are exhausted: {"status": "dropped", "message": ...} - stop
         retrying this rule and move on.
     """
     key = (table_name, rule_name)
-    result = validate_and_execute(sql)
+    # FIX (bug 1): validate_and_execute requires (sql, table_name) - it uses
+    # table_name at the end to compute table_row_count. The missing second
+    # argument here raised a TypeError on every single call, which
+    # propagated uncaught out of the tool and crashed the whole agent run
+    # before any rule could ever be checked.
+    result = validate_and_execute(sql, table_name)
 
     if result["status"] == "ok":
         _attempts.pop(key, None)
         store_results(table_name, rule_name, result["results"])
         set_status(table_name, rule_name, "completed")
-        return {"status": "ok", "results": result["results"]}
+        # FIX (bug 3): validate_and_execute already computes table_row_count,
+        # but this used to return only "results", silently dropping it. The
+        # orchestrator prompt's sql_principles item 9 explicitly requires
+        # comparing the violation count to table_row_count before calling
+        # append_result - without it in the response, that check had no
+        # data to work with. Pass it through.
+        return {
+            "status": "ok",
+            "results": result["results"],
+            "table_row_count": result["table_row_count"],
+        }
 
     attempts = _attempts.get(key, 0) + 1
     _attempts[key] = attempts
@@ -110,13 +128,9 @@ def append_result(table_name: str, rule_name: str) -> dict:
             violating rows for this table.
 
     Returns:
-        On success: {"status": "ok", "results": [{"query", "rows", "row_count"}, ...]}
-        `rows` is capped at a small sample per query - `row_count` is
-        always the true total, so use it (not len(rows)) to judge how
-        many rows actually violate the rule.
-        On a validation or runtime problem: {"status": ..., "sql_query_list": {query: error_or_None}}
-        Once retries are exhausted: {"status": "dropped", "message": ...} - stop
-        retrying this rule and move on.
+        On success: {"status": "ok", "insight": str}
+        On error (execute_sql wasn't run successfully for this rule first):
+            {"status": "error", "message": str}
     """
     results = pop_results(table_name, rule_name)
     if results is None:

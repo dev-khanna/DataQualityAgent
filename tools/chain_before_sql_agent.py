@@ -12,6 +12,8 @@ tools/chain_before_sql_agent.py
    As per my understanding, the todo list automatically assigns the status.
 """
 
+import os
+
 import config
 from tools.metadata_profiling import (
     get_schema,
@@ -120,12 +122,28 @@ def plan_rules(metadata: dict) -> RulePlan:
     return rule_plan
 
 
+def reset_todo_list() -> None:
+    """Deletes todo_list.md so each run starts from a clean file instead
+    of appending yet another table's rules onto whatever earlier runs
+    already left behind. Nothing in the pipeline ever reads this file
+    back in - the ReAct orchestrator gets its rules from the in-memory
+    HumanMessage built in run_individual_table_dq_check, not from disk -
+    so it's purely a write-only audit log and safe to clear. Mirrors
+    tools/report.py's reset_report(): same reasoning, same pattern, just
+    for the todo list instead of the CSV report.
+    """
+    if os.path.exists(config.TODO_DIR):
+        os.remove(config.TODO_DIR)
+
+
 def _write_rules_to_todo_list(table_name: str, rules: list) -> None:
     """Appends this table's freshly planned rules to todo_list.md (never
-    overwritten - new rules are appended for every table processed), and
-    registers each rule's description in the rule_registry so the ReAct
-    orchestrator's tools can look it up later by (table_name, rule_name)
-    alone, without needing the LLM to repeat it on every tool call."""
+    overwritten within a run - new rules are appended for every table
+    processed in that run; call reset_todo_list() once at the start of a
+    run if you want a clean file), and registers each rule's description
+    in the rule_registry so the ReAct orchestrator's tools can look it up
+    later by (table_name, rule_name) alone, without needing the LLM to
+    repeat it on every tool call."""
     with open(config.TODO_DIR, "a") as f:
         f.write(f"\n<!-- table: {table_name} -->\n")
         for rule in rules:

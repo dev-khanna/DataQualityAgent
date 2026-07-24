@@ -100,7 +100,18 @@ def validate_and_execute(sql: list[str], table_name: str) -> dict:
             runtime_errors[query] = str(e)
 
     if runtime_errors:
-        return {"status": "runtime_error", "sql_query_list": {...}}
+        # FIX (bug 2): this used to be `{"sql_query_list": {...}}` - a
+        # Python set literal containing the single Ellipsis object, not a
+        # {query: error} dict. That meant the orchestrator never learned
+        # which query actually failed at runtime or why, so it burned
+        # through its retries blind. Build the mapping the same way the
+        # validation_failed branch above does: every query from the
+        # original list as a key, its error message if it failed, None if
+        # it didn't (per <workflow> step 3, None means "already fine").
+        return {
+            "status": "runtime_error",
+            "sql_query_list": {query: runtime_errors.get(query) for query in sql},
+        }
 
     table_row_count = con.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
     return {"status": "ok", "results": results, "table_row_count": table_row_count}
